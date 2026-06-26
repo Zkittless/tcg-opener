@@ -160,12 +160,6 @@ class CollectionView(discord.ui.View):
         embed = await view.build_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your collection!", ephemeral=True)
-            return False
-        return True
-
 
 async def build_collection_embed(uid: str, display_name: str, mode: str = "all") -> discord.Embed:
     summary      = await get_collection_summary(uid)
@@ -317,7 +311,7 @@ class BinderView(discord.ui.View):
         await self._toggle(interaction, keep=False)
 
     async def _toggle(self, interaction: discord.Interaction, keep: bool):
-        # Get the card at current page with NO filter
+        # Get current card with no filter
         cards, _ = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=None, page=self.page, per_page=1
@@ -329,6 +323,7 @@ class BinderView(discord.ui.View):
         card_id = cards[0]["card_id"]
         await set_card_keep(self.uid, card_id, keep)
 
+        # Recalculate total for this filter view
         _, new_total = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=self.keep_filter, page=1, per_page=1
@@ -337,8 +332,13 @@ class BinderView(discord.ui.View):
         self.page  = min(self.page, self.total)
         self._rebuild()
 
-        # Force-refresh the embed with updated keep status from DB
-        embed = await self._build_embed_for_card_id(card_id)
+        # If we're in a filtered view (keep or discard pile) and the card
+        # no longer belongs there, build_embed will naturally show the next card.
+        # If we're in "all" view, show the updated card status directly.
+        if self.keep_filter is None:
+            embed = await self._build_embed_for_card_id(card_id)
+        else:
+            embed = await self.build_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def _build_embed_for_card_id(self, card_id: str) -> discord.Embed:
