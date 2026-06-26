@@ -1,14 +1,16 @@
 """
 cogs/collection.py
+
+/collection — paginated card browser with delete button per card + bulk delete by value
+/stats      — pack opening stats
 """
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 import logging
-import aiosqlite
 
-from config import PACK_TIMEOUT, DB_PATH
+from config import PACK_TIMEOUT
 from core.db import (
     get_collection,
     get_collection_summary,
@@ -18,8 +20,8 @@ from core.db import (
     get_user_stats,
     get_pack_history,
     ensure_user,
-    set_card_keep,
-    bulk_set_keep_by_value,
+    delete_card,
+    delete_cards_below_value,
 )
 from core.pack_engine import rarity_tier
 
@@ -32,13 +34,13 @@ def rarity_color(rarity: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Filter Modal
+#  Threshold modal
 # ─────────────────────────────────────────────────────────────────────────────
 
-class FilterModal(discord.ui.Modal, title="Set Collection Filter"):
-    min_value = discord.ui.TextInput(
-        label="Minimum value to KEEP (USD)",
-        placeholder="e.g. 1.00  — cards below this go to Discard",
+class ThresholdModal(discord.ui.Modal, title="Delete cards below value"):
+    amount = discord.ui.TextInput(
+        label="Delete all cards worth less than (USD)",
+        placeholder="e.g. 1.00",
         required=True,
         max_length=10,
     )
@@ -49,81 +51,87 @@ class FilterModal(discord.ui.Modal, title="Set Collection Filter"):
         self.user_id = user_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        raw = self.min_value.value.strip().lstrip("$")
+        raw = self.amount.value.strip().lstrip("$")
         try:
             threshold = float(raw)
             if threshold < 0:
                 raise ValueError
         except ValueError:
             await interaction.response.send_message(
-                "❌ Please enter a valid dollar amount (e.g. `1.00`).", ephemeral=True
+                "❌ Enter a valid dollar amount e.g. `1.00`", ephemeral=True
             )
             return
 
-        await bulk_set_keep_by_value(self.uid, threshold)
-        _, keep_total    = await get_collection(self.uid, keep=True,  page=1, per_page=1)
-        _, discard_total = await get_collection(self.uid, keep=False, page=1, per_page=1)
-
-        embed = discord.Embed(
-            title="✅  Filter Applied",
-            description=(
-                f"Cards **≥ ${threshold:.2f}** → ✅ Keep  (`{keep_total}` cards)\n"
-                f"Cards **< ${threshold:.2f}** → 🗑️ Discard  (`{discard_total}` cards)\n\n"
-                "Use the buttons below to browse each pile."
-            ),
-            color=0x57F287,
-        )
-        view = CollectionView(uid=self.uid, user_id=self.user_id, mode="all")
-        await interaction.response.send_message(embed=embed, view=view)
+        await delete_cards_below_value(self.uid, threshold)
+        _, total = await get_collection(self.uid, page=1, per_page=1)
+        embed = await build_overview_embed(self.uid, interaction.user.display_name)
+        view  = CollectionView(uid=self.uid, user_id=self.user_id, total=total)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Collection overview
+#  Overview embed
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def build_overview_embed(uid: str, display_name: str) -> discord.Embed:
+    total_cards = await get_collection_card_count(uid)
+    unique      = await get_unique_card_count(uid)
+    total_value = await get_collection_total_value(uid)
+    stats       = await get_user_stats(uid)
+    packs       = stats["packs_opened"] if stats else 0
+    summary     = await get_collection_summary(uid)
+
+    embed = discord.Embed(title=f"📦  {display_name}'s Collection", color=0xFFCC00)
+    embed.add_field(name="Unique Cards",   value=f"`{unique}`",              inline=True)
+    embed.add_field(name="Total Cards",    value=f"`{total_cards}`",         inline=True)
+    embed.add_field(name="Packs Opened",   value=f"`{packs}`",               inline=True)
+    embed.add_field(name="💵 Total Value", value=f"**${total_value:,.2f}**", inline=False)
+
+    if summary:
+        lines = "\n".join(
+            f"**{r['set_name'] or r['set_id']}** — `{r['unique_cards']}` cards  •  **${r['set_value'] or 0:,.2f}**"
+            for r in summary[:8]
+        )
+        embed.add_field(name="Sets", value=lines, inline=False)
+
+    embed.set_footer(text="Browse Cards to view and delete  •  🗑️ Delete Below $X to bulk delete")
+    return embed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Collection overview view
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CollectionView(discord.ui.View):
-    def __init__(self, uid: str, user_id: int, mode: str = "all"):
+    def __init__(self, uid: str, user_id: int, total: int = 0):
         super().__init__(timeout=PACK_TIMEOUT)
         self.uid     = uid
         self.user_id = user_id
-        self.mode    = mode
+        self.total   = total
         self._rebuild()
 
     def _rebuild(self):
         self.clear_items()
-        styles = {"all": discord.ButtonStyle.primary, "keep": discord.ButtonStyle.success, "discard": discord.ButtonStyle.danger}
-        for label, mode in [("📦 All Cards", "all"), ("✅ Keep", "keep"), ("🗑️ Discard", "discard")]:
-            btn = discord.ui.Button(label=label, style=styles[mode], disabled=(self.mode == mode), row=0)
-            btn.callback = self._make_mode_cb(mode)
-            self.add_item(btn)
-        filter_btn = discord.ui.Button(label="⚙️ Set Filter", style=discord.ButtonStyle.secondary, row=0)
-        filter_btn.callback = self._open_filter
-        self.add_item(filter_btn)
-        browse_btn = discord.ui.Button(label="🔍 Browse Cards", style=discord.ButtonStyle.secondary, row=1)
-        browse_btn.callback = self._browse
-        self.add_item(browse_btn)
 
-    def _make_mode_cb(self, mode: str):
-        async def cb(interaction: discord.Interaction):
-            self.mode = mode
-            self._rebuild()
-            embed = await build_collection_embed(self.uid, interaction.user.display_name, mode)
-            await interaction.response.edit_message(embed=embed, view=self)
-        return cb
+        browse = discord.ui.Button(label="🔍 Browse Cards", style=discord.ButtonStyle.primary, row=0)
+        browse.callback = self._browse
+        self.add_item(browse)
 
-    async def _open_filter(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(FilterModal(uid=self.uid, user_id=self.user_id))
+        bulk = discord.ui.Button(label="🗑️ Delete Below $X", style=discord.ButtonStyle.danger, row=0)
+        bulk.callback = self._bulk_delete
+        self.add_item(bulk)
 
     async def _browse(self, interaction: discord.Interaction):
-        # Keep pile by default — discarding visibly removes the card
-        keep_filter = {"all": True, "keep": True, "discard": False}[self.mode]
-        _, total = await get_collection(self.uid, keep=keep_filter, page=1, per_page=1)
+        _, total = await get_collection(self.uid, page=1, per_page=1)
         if total == 0:
-            await interaction.response.send_message("No cards in this pile yet!", ephemeral=True)
+            await interaction.response.send_message("No cards yet — open some packs! 🎴", ephemeral=True)
             return
-        view  = BinderView(uid=self.uid, user_id=self.user_id, keep_filter=keep_filter, total=total)
+        view  = BinderView(uid=self.uid, user_id=self.user_id, total=total)
         embed = await view.build_embed()
         await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _bulk_delete(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(ThresholdModal(uid=self.uid, user_id=self.user_id))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -133,61 +141,25 @@ class CollectionView(discord.ui.View):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Collection embed builder
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def build_collection_embed(uid: str, display_name: str, mode: str = "all") -> discord.Embed:
-    total_cards  = await get_collection_card_count(uid)
-    unique       = await get_unique_card_count(uid)
-    total_value  = await get_collection_total_value(uid)
-    stats        = await get_user_stats(uid)
-    packs        = stats["packs_opened"] if stats else 0
-    summary      = await get_collection_summary(uid)
-    _, keep_total    = await get_collection(uid, keep=True,  page=1, per_page=1)
-    _, discard_total = await get_collection(uid, keep=False, page=1, per_page=1)
-
-    mode_labels = {"all": "📦 Full Collection", "keep": "✅ Keep Pile", "discard": "🗑️ Discard Pile"}
-    colors      = {"all": 0xFFCC00, "keep": 0x57F287, "discard": 0xED4245}
-    embed = discord.Embed(title=f"{mode_labels[mode]} — {display_name}", color=colors[mode])
-    embed.add_field(name="Unique Cards",   value=f"`{unique}`",           inline=True)
-    embed.add_field(name="Total Cards",    value=f"`{total_cards}`",      inline=True)
-    embed.add_field(name="Packs Opened",   value=f"`{packs}`",            inline=True)
-    embed.add_field(name="💵 Total Value", value=f"**${total_value:,.2f}**", inline=True)
-    embed.add_field(name="✅ Keep",        value=f"`{keep_total}`",       inline=True)
-    embed.add_field(name="🗑️ Discard",    value=f"`{discard_total}`",    inline=True)
-
-    if summary:
-        lines = "\n".join(
-            f"**{r['set_name'] or r['set_id']}** — `{r['unique_cards']}` cards  •  **${r['set_value'] or 0:,.2f}**"
-            for r in summary[:8]
-        )
-        embed.add_field(name="Sets (by value)", value=lines, inline=False)
-
-    embed.set_footer(text="Browse Cards opens your Keep pile — hit Discard to move cards out")
-    return embed
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Binder
+#  Binder — card by card with delete button
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BinderView(discord.ui.View):
-    def __init__(self, uid: str, user_id: int, keep_filter: bool | None = True,
-                 total: int = 0, set_id: str | None = None, min_value: float | None = None):
+    def __init__(self, uid: str, user_id: int, total: int = 0,
+                 set_id: str | None = None, min_value: float | None = None):
         super().__init__(timeout=PACK_TIMEOUT)
-        self.uid         = uid
-        self.user_id     = user_id
-        self.keep_filter = keep_filter
-        self.set_id      = set_id
-        self.min_value   = min_value
-        self.total       = total
-        self.page        = 1
+        self.uid       = uid
+        self.user_id   = user_id
+        self.total     = total
+        self.set_id    = set_id
+        self.min_value = min_value
+        self.page      = 1
         self._rebuild()
 
     async def build_embed(self) -> discord.Embed:
         cards, _ = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
-            keep=self.keep_filter, page=self.page, per_page=1,
+            page=self.page, per_page=1,
         )
         if not cards:
             return discord.Embed(title="No cards found.", color=0x9E9E9E)
@@ -199,7 +171,6 @@ class BinderView(discord.ui.View):
         count     = card.get("count", 1)
         image_url = card.get("image_url", "")
         price     = card.get("market_price")
-        keep      = card.get("keep", 1)
         card_id   = card.get("card_id", "")
 
         embed = discord.Embed(title=name, color=rarity_color(rarity))
@@ -214,29 +185,30 @@ class BinderView(discord.ui.View):
             safe = name.replace(" ", "+")
             price_val = f"[Check TCGPlayer](https://www.tcgplayer.com/search/pokemon/product?q={safe}&productLineName=pokemon)"
         embed.add_field(name="💵 Market Value", value=price_val, inline=True)
-        embed.add_field(name="Status", value="✅ Keep" if keep else "🗑️ Discard", inline=True)
         embed.set_footer(text=f"Card {self.page} of {self.total}  •  ID: {card_id}")
         return embed
 
     def _rebuild(self):
         self.clear_items()
+
         prev = discord.ui.Button(label="◀", style=discord.ButtonStyle.secondary, disabled=self.page <= 1, row=0)
         prev.callback = self._prev
         self.add_item(prev)
+
         ind = discord.ui.Button(label=f"{self.page}/{self.total}", style=discord.ButtonStyle.secondary, disabled=True, row=0)
         self.add_item(ind)
+
         nxt = discord.ui.Button(label="▶", style=discord.ButtonStyle.secondary, disabled=self.page >= self.total, row=0)
         nxt.callback = self._next
         self.add_item(nxt)
-        keep_btn = discord.ui.Button(label="✅ Keep", style=discord.ButtonStyle.success, row=1)
-        keep_btn.callback = self._mark_keep
-        self.add_item(keep_btn)
-        discard_btn = discord.ui.Button(label="🗑️ Discard", style=discord.ButtonStyle.danger, row=1)
-        discard_btn.callback = self._mark_discard
-        self.add_item(discard_btn)
-        back_btn = discord.ui.Button(label="◀ Collection", style=discord.ButtonStyle.secondary, row=1)
-        back_btn.callback = self._back_to_collection
-        self.add_item(back_btn)
+
+        del_btn = discord.ui.Button(label="🗑️ Delete", style=discord.ButtonStyle.danger, row=1)
+        del_btn.callback = self._delete
+        self.add_item(del_btn)
+
+        back = discord.ui.Button(label="◀ Collection", style=discord.ButtonStyle.secondary, row=1)
+        back.callback = self._back
+        self.add_item(back)
 
     async def _prev(self, interaction: discord.Interaction):
         self.page = max(1, self.page - 1)
@@ -248,39 +220,40 @@ class BinderView(discord.ui.View):
         self._rebuild()
         await interaction.response.edit_message(embed=await self.build_embed(), view=self)
 
-    async def _mark_keep(self, interaction: discord.Interaction):
-        await self._toggle(interaction, keep=True)
-
-    async def _mark_discard(self, interaction: discord.Interaction):
-        await self._toggle(interaction, keep=False)
-
-    async def _toggle(self, interaction: discord.Interaction, keep: bool):
-        # Fetch the card currently shown, regardless of keep status
+    async def _delete(self, interaction: discord.Interaction):
+        # Get current card
         cards, _ = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
-            keep=None, page=self.page, per_page=1,
+            page=self.page, per_page=1,
         )
         if not cards:
             await interaction.response.edit_message(embed=await self.build_embed(), view=self)
             return
 
         card_id = cards[0]["card_id"]
-        log.info(f"toggle: uid={self.uid} card={card_id} keep={keep}")
-        await set_card_keep(self.uid, card_id, keep)
+        log.info(f"delete: uid={self.uid} card={card_id}")
+        await delete_card(self.uid, card_id)
 
-        # Recalculate total for current filter
-        _, new_total = await get_collection(
+        # Recalculate total and clamp page
+        _, self.total = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
-            keep=self.keep_filter, page=1, per_page=1,
+            page=1, per_page=1,
         )
-        self.total = max(1, new_total)
-        self.page  = min(self.page, self.total)
+        if self.total == 0:
+            # No cards left — go back to overview
+            embed = await build_overview_embed(self.uid, interaction.user.display_name)
+            view  = CollectionView(uid=self.uid, user_id=self.user_id, total=0)
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        self.page = min(self.page, self.total)
         self._rebuild()
         await interaction.response.edit_message(embed=await self.build_embed(), view=self)
 
-    async def _back_to_collection(self, interaction: discord.Interaction):
-        view  = CollectionView(uid=self.uid, user_id=self.user_id)
-        embed = await build_collection_embed(self.uid, interaction.user.display_name)
+    async def _back(self, interaction: discord.Interaction):
+        embed = await build_overview_embed(self.uid, interaction.user.display_name)
+        _, total = await get_collection(self.uid, page=1, per_page=1)
+        view  = CollectionView(uid=self.uid, user_id=self.user_id, total=total)
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -303,31 +276,16 @@ class CollectionCog(commands.Cog):
         await interaction.response.defer()
         uid = str(interaction.user.id)
         await ensure_user(uid, str(interaction.user))
-        summary = await get_collection_summary(uid)
-        if not summary:
+        _, total = await get_collection(uid, page=1, per_page=1)
+        if total == 0:
             await interaction.followup.send(embed=discord.Embed(
                 title="📦  Your Collection",
                 description="You haven't opened any packs yet!\nUse `/store` to rip your first pack. 🎴",
                 color=0xFFCC00,
             ))
             return
-        embed = await build_collection_embed(uid, interaction.user.display_name)
-        view  = CollectionView(uid=uid, user_id=interaction.user.id)
-        await interaction.followup.send(embed=embed, view=view)
-
-    @app_commands.command(name="binder", description="Flip through your collected cards")
-    @app_commands.describe(set_filter="Filter by set ID (e.g. sv8pt5)", min_value="Only show cards worth at least this $ amount")
-    async def binder(self, interaction: discord.Interaction, set_filter: str | None = None, min_value: float | None = None):
-        await interaction.response.defer()
-        uid = str(interaction.user.id)
-        await ensure_user(uid, str(interaction.user))
-        set_id = set_filter.lower().strip() if set_filter else None
-        _, total = await get_collection(uid, set_id=set_id, min_value=min_value, keep=True, page=1, per_page=1)
-        if total == 0:
-            await interaction.followup.send("No cards found.", ephemeral=True)
-            return
-        view  = BinderView(uid=uid, user_id=interaction.user.id, keep_filter=True, set_id=set_id, min_value=min_value, total=total)
-        embed = await view.build_embed()
+        embed = await build_overview_embed(uid, interaction.user.display_name)
+        view  = CollectionView(uid=uid, user_id=interaction.user.id, total=total)
         await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="stats", description="Your pack opening stats")

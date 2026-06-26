@@ -240,7 +240,24 @@ async def set_card_keep(discord_id: str, card_id: str, keep: bool):
         await db.commit()
 
 
-async def bulk_set_keep_by_value(discord_id: str, min_keep_value: float):
+async def delete_card(discord_id: str, card_id: str):
+    """Permanently delete a card from the collection."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM collection WHERE discord_id = ? AND card_id = ?",
+            (discord_id, card_id),
+        )
+        await db.commit()
+
+
+async def delete_cards_below_value(discord_id: str, threshold: float):
+    """Permanently delete all cards worth less than threshold."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM collection WHERE discord_id = ? AND (market_price < ? OR market_price IS NULL)",
+            (discord_id, threshold),
+        )
+        await db.commit()
     """Mark keep=1 for cards >= threshold, keep=0 for cards below."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
