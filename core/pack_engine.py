@@ -166,6 +166,10 @@ def detect_era(set_id: str) -> str:
     if sid in {"ecard1", "ecard2", "ecard3"}:
         return "ereader"
 
+    # EX era (Ruby & Sapphire through Power Keepers)
+    if sid.startswith("ex"):
+        return "ex"
+
     # Everything else (Base Set, Jungle, Fossil, Neo, etc.) = classic WotC
     return "classic"
 
@@ -264,6 +268,17 @@ PACK_TRICKS: dict[str, PackTrick] = {
             "(Exception to the usual 3-card classic rule.)"
         ),
         set_note="",
+    ),
+    "ex": PackTrick(
+        era="ex",
+        cards_to_move=3,
+        description=(
+            "**EX era pack trick** — move **3 cards** "
+            "from the back to the front before flipping. "
+            "Your last card will be the rare (holo, reverse holo, or EX card). "
+            "Gold Stars (★) appear extremely rarely in the rare slot."
+        ),
+        set_note="Pack contains 1 Energy + 4 Commons + 3 Uncommons + 1 Reverse Holo + 1 Rare.",
     ),
     "classic": PackTrick(
         era="classic",
@@ -401,6 +416,17 @@ RARE_SLOT_CLASSIC = [
     ("rare",    {"Rare"},             0.67),
 ]
 
+# EX era: Holo, Rare, EX card, Gold Star
+# Gold Star appears in ~1/72 packs (roughly 1.4% of rare slots)
+# EX cards appear in ~1/12 packs (roughly 8%)
+# Source: documented pull rate data from EX era pack openings
+RARE_SLOT_EX = [
+    ("gold_star", {"Rare Holo Star"},                       0.014),
+    ("ex_card",   {"Rare Holo EX"},                        0.08),
+    ("holo",      {"Rare Holo"},                           0.30),
+    ("rare",      {"Rare"},                                0.606),
+]
+
 
 def _get_rare_slot_table(set_id: str) -> list:
     # Ascended Heroes gets its own table
@@ -416,6 +442,7 @@ def _get_rare_slot_table(set_id: str) -> list:
         "hgss":    RARE_SLOT_HGSS,
         "pl":      RARE_SLOT_DP_PL,
         "dp":      RARE_SLOT_DP_PL,
+        "ex":      RARE_SLOT_EX,
         "ereader": RARE_SLOT_CLASSIC,
         "classic": RARE_SLOT_CLASSIC,
     }.get(era, RARE_SLOT_CLASSIC)

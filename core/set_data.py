@@ -17,6 +17,11 @@ def _ps(slug: str, count: int, ext: str = "jpg") -> list[str]:
     return [f"{PS}/{slug}-pack-{i}.{ext}" for i in range(count)]
 
 
+def _logo(set_id: str) -> list[str]:
+    """pokemontcg.io set logo — reliable fallback for sets without pack art."""
+    return [f"https://images.pokemontcg.io/{set_id}/logo.png"]
+
+
 @dataclass
 class SetMeta:
     set_id:    str
@@ -158,10 +163,38 @@ CLASSIC_SETS: list[SetMeta] = [
     SetMeta("base1", "Classic", _ps("base-set",             3), pack_size=9),
 ]
 
+# ── EX era ───────────────────────────────────────────────────────────────────
+EX_SETS: list[SetMeta] = [
+    SetMeta("ex16",  "EX", _logo("ex16"), pack_size=9),  # EX Power Keepers
+    SetMeta("ex15",  "EX", _logo("ex15"), pack_size=9),  # EX Dragon Frontiers (Gold Star Charizard)
+    SetMeta("ex14",  "EX", _logo("ex14"), pack_size=9),  # EX Crystal Guardians
+    SetMeta("ex13",  "EX", _logo("ex13"), pack_size=9),  # EX Holon Phantoms (Gold Star Mewtwo/Mew)
+    SetMeta("ex12",  "EX", _logo("ex12"), pack_size=9),  # EX Legend Maker
+    SetMeta("ex11",  "EX", _logo("ex11"), pack_size=9),  # EX Delta Species
+    SetMeta("ex10",  "EX", _logo("ex10"), pack_size=9),  # EX Unseen Forces (Gold Star Entei/Raikou/Suicune)
+    SetMeta("ex9",   "EX", _logo("ex9"),  pack_size=9),  # EX Emerald
+    SetMeta("ex7",   "EX", _logo("ex7"),  pack_size=9),  # EX Deoxys (Gold Star Rayquaza)
+    SetMeta("ex8",   "EX", _logo("ex8"),  pack_size=9),  # EX Team Rocket Returns
+    SetMeta("ex6",   "EX", _logo("ex6"),  pack_size=9),  # EX FireRed & LeafGreen
+    SetMeta("ex5",   "EX", _logo("ex5"),  pack_size=9),  # EX Hidden Legends
+    SetMeta("ex4",   "EX", _logo("ex4"),  pack_size=9),  # EX Team Magma vs Team Aqua
+    SetMeta("ex3",   "EX", _logo("ex3"),  pack_size=9),  # EX Dragon
+    SetMeta("ex2",   "EX", _logo("ex2"),  pack_size=9),  # EX Sandstorm
+    SetMeta("ex1",   "EX", _logo("ex1"),  pack_size=9),  # EX Ruby & Sapphire
+]
+
+# ── e-Card era ────────────────────────────────────────────────────────────────
+ECARD_SETS: list[SetMeta] = [
+    SetMeta("ecard3", "e-Card", _logo("ecard3"), pack_size=9),  # Skyridge
+    SetMeta("ecard2", "e-Card", _logo("ecard2"), pack_size=9),  # Aquapolis
+    SetMeta("ecard1", "e-Card", _logo("ecard1"), pack_size=9),  # Expedition
+]
+
 # ── Master lookup ─────────────────────────────────────────────────────────────
 ALL_SETS: list[SetMeta] = (
     ME_SETS + SV_SETS + SWSH_SETS + SM_SETS +
-    XY_SETS + BW_SETS + HGSS_SETS + PL_SETS + DP_SETS + CLASSIC_SETS
+    XY_SETS + BW_SETS + HGSS_SETS + PL_SETS + DP_SETS +
+    CLASSIC_SETS + EX_SETS + ECARD_SETS
 )
 
 ALL_SET_META: dict[str, SetMeta] = {s.set_id: s for s in ALL_SETS}
@@ -169,7 +202,7 @@ ALL_SET_META: dict[str, SetMeta] = {s.set_id: s for s in ALL_SETS}
 ERA_ORDER = [
     "Mega Evolution", "Scarlet & Violet", "Sword & Shield", "Sun & Moon",
     "XY", "Black & White", "HeartGold & SoulSilver", "Platinum",
-    "Diamond & Pearl", "Classic",
+    "Diamond & Pearl", "Classic", "EX", "e-Card",
 ]
 
 ERA_COLORS = {
@@ -183,6 +216,8 @@ ERA_COLORS = {
     "Platinum":                0x7B7B9E,
     "Diamond & Pearl":         0x4B6EAF,
     "Classic":                 0xFFCC00,
+    "EX":                      0xCC0000,
+    "e-Card":                  0x336699,
 }
 
 ERA_EMOJIS = {
@@ -196,6 +231,8 @@ ERA_EMOJIS = {
     "Platinum":                "🔷",
     "Diamond & Pearl":         "💎",
     "Classic":                 "🎴",
+    "EX":                      "🌟",
+    "e-Card":                  "📱",
 }
 
 
