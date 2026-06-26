@@ -228,65 +228,168 @@ def format_price(card: dict) -> str:
     return f"${price:,.2f}"
 
 
-# ── Free Price Fetcher ────────────────────────────────────────────────────────
-# pokemontcg.io exposes a public price proxy that doesn't require an API key:
-#   https://prices.pokemontcg.io/tcgplayer/{card_id}
-# Returns TCGPlayer market prices directly. No auth, no credits.
 
-_PRICE_PROXY_BASE = "https://prices.pokemontcg.io/tcgplayer"
-_price_proxy_session: Optional[aiohttp.ClientSession] = None
-_price_proxy_cache: dict[str, float | None] = {}
+# ── TCGCSV Price Fetcher ──────────────────────────────────────────────────────
+# tcgcsv.com is a free public mirror of TCGPlayer's price data, updated daily.
+# No API key, no credits, no limits.
+#
+# Flow:
+#   1. Fetch all Pokemon groups (sets) from TCGCSV — cached in memory
+#   2. Match pokemontcg.io set_id to a TCGPlayer groupId via set name/abbreviation
+#   3. Fetch all products + prices for that group in one call
+#   4. Match cards by card number, cache all prices in DB
+#
+# This means the first pack from a new set costs ~2 HTTP calls total,
+# and every subsequent pull from that set costs 0.
+
+_TCGCSV_BASE = "https://tcgcsv.com/tcgplayer"
+_POKEMON_CAT = 3   # TCGPlayer categoryId for Pokemon
+
+_tcgcsv_session:  Optional[aiohttp.ClientSession] = None
+_tcgcsv_groups:   Optional[list[dict]] = None   # cached group list
+_tcgcsv_fetched:  set[str] = set()              # set_ids already fetched
 
 
-async def _get_price_proxy_session() -> aiohttp.ClientSession:
-    global _price_proxy_session
-    if _price_proxy_session is None or _price_proxy_session.closed:
-        _price_proxy_session = aiohttp.ClientSession(
+async def _get_tcgcsv_session() -> aiohttp.ClientSession:
+    global _tcgcsv_session
+    if _tcgcsv_session is None or _tcgcsv_session.closed:
+        _tcgcsv_session = aiohttp.ClientSession(
             headers={"User-Agent": "PokemonPackBot/1.0"},
-            timeout=aiohttp.ClientTimeout(total=10),
+            timeout=aiohttp.ClientTimeout(total=15),
         )
-    return _price_proxy_session
+    return _tcgcsv_session
+
+
+async def _get_tcgcsv_groups() -> list[dict]:
+    """Fetch and cache the full list of Pokemon groups from TCGCSV."""
+    global _tcgcsv_groups
+    if _tcgcsv_groups is not None:
+        return _tcgcsv_groups
+    try:
+        session = await _get_tcgcsv_session()
+        async with session.get(f"{_TCGCSV_BASE}/{_POKEMON_CAT}/groups") as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json(content_type=None)
+            _tcgcsv_groups = data.get("results", [])
+            log.info(f"TCGCSV: loaded {len(_tcgcsv_groups)} Pokemon groups")
+            return _tcgcsv_groups
+    except Exception as e:
+        log.error(f"TCGCSV groups fetch error: {e}")
+        return []
+
+
+def _find_group_id(groups: list[dict], api_set: dict) -> Optional[int]:
+    """
+    Match a pokemontcg.io set object to a TCGPlayer groupId.
+    Tries abbreviation match first, then name substring match.
+    """
+    ptcgo   = (api_set.get("ptcgoCode") or "").upper()
+    name    = (api_set.get("name") or "").lower()
+
+    for g in groups:
+        abbr = (g.get("abbreviation") or "").upper()
+        gname = (g.get("name") or "").lower()
+        if ptcgo and abbr == ptcgo:
+            return g["groupId"]
+        if name and name in gname:
+            return g["groupId"]
+    return None
+
+
+async def fetch_set_prices_tcgcsv(set_id: str) -> dict[str, float]:
+    """
+    Fetch all card prices for a set from TCGCSV.
+    Returns {card_number: price} dict.
+    """
+    # Get the pokemontcg.io set object (already cached in memory)
+    api_set = await fetch_set(set_id)
+    if not api_set:
+        return {}
+
+    groups   = await _get_tcgcsv_groups()
+    group_id = _find_group_id(groups, api_set)
+    if not group_id:
+        log.warning(f"TCGCSV: no group found for set {set_id}")
+        return {}
+
+    try:
+        session = await _get_tcgcsv_session()
+
+        # Fetch products (cards) — gives us productId → card number mapping
+        async with session.get(f"{_TCGCSV_BASE}/{_POKEMON_CAT}/{group_id}/products") as resp:
+            if resp.status != 200:
+                return {}
+            prod_data = await resp.json(content_type=None)
+            products  = prod_data.get("results", [])
+
+        # Build productId → card number map
+        # extendedData contains [{name: "Number", value: "001/198"}, ...]
+        prod_to_num: dict[int, str] = {}
+        for p in products:
+            pid  = p.get("productId")
+            exts = p.get("extendedData", [])
+            for ext in exts:
+                if ext.get("name") == "Number":
+                    # TCGPlayer stores "001/198" — we just want "1"
+                    raw_num = ext.get("value", "").split("/")[0].lstrip("0") or "0"
+                    prod_to_num[pid] = raw_num
+                    break
+
+        # Fetch prices
+        async with session.get(f"{_TCGCSV_BASE}/{_POKEMON_CAT}/{group_id}/prices") as resp:
+            if resp.status != 200:
+                return {}
+            price_data = await resp.json(content_type=None)
+            prices     = price_data.get("results", [])
+
+        # Build card_number → best market price
+        num_to_price: dict[str, float] = {}
+        for p in prices:
+            pid    = p.get("productId")
+            num    = prod_to_num.get(pid)
+            if not num:
+                continue
+            market = p.get("marketPrice") or p.get("midPrice") or p.get("lowPrice")
+            if market is not None:
+                # Keep the highest price if multiple printings
+                existing = num_to_price.get(num, 0.0)
+                num_to_price[num] = max(existing, float(market))
+
+        log.info(f"TCGCSV: fetched {len(num_to_price)} prices for {set_id} (group {group_id})")
+        return num_to_price
+
+    except Exception as e:
+        log.error(f"TCGCSV price fetch error for {set_id}: {e}")
+        return {}
 
 
 async def fetch_tcgdex_price(card_id: str) -> float | None:
     """
-    Fetch market price via pokemontcg.io's free public price proxy.
-    No API key required. Falls back gracefully if unavailable.
+    Look up a single card price via TCGCSV.
+    Fetches the whole set's prices on first call, caches everything.
+    card_id format: sv8pt5-75 (set_id-number)
     """
-    if card_id in _price_proxy_cache:
-        return _price_proxy_cache[card_id]
-
-    try:
-        session = await _get_price_proxy_session()
-        url     = f"{_PRICE_PROXY_BASE}/{card_id}"
-        async with session.get(url, allow_redirects=True) as resp:
-            raw = await resp.text()
-            log.info(f"Price proxy raw for {card_id}: status={resp.status} body={raw[:200]}")
-            if resp.status != 200 or not raw.strip():
-                _price_proxy_cache[card_id] = None
-                return None
-            try:
-                data = await resp.json(content_type=None)
-            except Exception:
-                import json
-                data = json.loads(raw)
-
-        # Response shape: {"prices": {"holofoil": {"market": 4.25, ...}, "normal": {...}}}
-        prices = data.get("prices", {})
-        for variant in ("holofoil", "normal", "reverseHolofoil", "1stEditionHolofoil", "unlimited"):
-            v = prices.get(variant, {})
-            if not v:
-                continue
-            market = v.get("market") or v.get("mid") or v.get("low")
-            if market is not None:
-                price = float(market)
-                _price_proxy_cache[card_id] = price
-                log.info(f"Price proxy: {card_id} = ${price:.2f} ({variant})")
-                return price
-
-        _price_proxy_cache[card_id] = None
+    if "-" not in card_id:
         return None
 
-    except Exception as e:
-        log.error(f"Price proxy fetch error for {card_id}: {e}")
-        return None
+    set_id, number = card_id.rsplit("-", 1)
+    # Strip leading zeros to match TCGPlayer's format
+    number = number.lstrip("0") or "0"
+
+    # Fetch entire set if not already done
+    if set_id not in _tcgcsv_fetched:
+        prices = await fetch_set_prices_tcgcsv(set_id)
+        if prices:
+            _tcgcsv_fetched.add(set_id)
+            # Store all prices in the DB cache
+            from core.db import store_cached_price
+            for num, price in prices.items():
+                await store_cached_price(f"{set_id}-{num}", price)
+            # Also cache zero-padded variants (e.g. sv8pt5-075 → 75)
+            # since pokemontcg.io uses unpadded numbers
+            log.info(f"TCGCSV: cached {len(prices)} prices for {set_id}")
+
+    # Now look up from DB cache
+    from core.db import get_cached_price
+    return await get_cached_price(card_id)
