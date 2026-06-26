@@ -60,13 +60,24 @@ MIGRATIONS = [
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
-        # Run migrations safely (ignore if column already exists)
-        for sql in MIGRATIONS:
+
+        # Run column migrations (ignore errors if columns already exist)
+        for sql in [
+            "ALTER TABLE collection ADD COLUMN market_price REAL",
+            "ALTER TABLE collection ADD COLUMN keep INTEGER DEFAULT 1",
+        ]:
             try:
                 await db.execute(sql)
+                await db.commit()
             except Exception:
                 pass
+
+        # ALWAYS normalize NULL keep values — this must run every startup
+        # because existing rows from before the column was added have keep=NULL,
+        # and SQLite's ALTER TABLE doesn't backfill existing rows.
+        await db.execute("UPDATE collection SET keep = 1 WHERE keep IS NULL")
         await db.commit()
+
     log.info(f"DB ready at {DB_PATH}")
 
 
