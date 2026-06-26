@@ -147,7 +147,23 @@ async def store_cached_price(card_id: str, price: float):
 
 
 async def add_cards_to_collection(discord_id: str, cards: list[dict]):
-    from core.tcg_api import get_card_price
+    from core.tcg_api import get_card_price, fetch_tcgdex_price
+
+    # Fetch prices for all cards BEFORE opening the DB connection
+    # fetch_tcgdex_price caches whole sets at once — do it outside the DB lock
+    card_prices_fetched: dict[str, float | None] = {}
+    for card in cards:
+        if card.get("_slot") == "energy":
+            continue
+        card_id = card.get("id", "")
+        if not card_id:
+            continue
+        # Try inline price first
+        price, _ = get_card_price(card)
+        if price is None:
+            price = await fetch_tcgdex_price(card_id)
+        card_prices_fetched[card_id] = price
+
     async with aiosqlite.connect(DB_PATH) as db:
         for card in cards:
             if card.get("_slot") == "energy":
@@ -159,10 +175,9 @@ async def add_cards_to_collection(discord_id: str, cards: list[dict]):
             rarity    = card.get("rarity", "")
             image_url = card.get("images", {}).get("large", "")
 
-            # 1. Price comes inline from pokemontcg.io when API key has credits
-            price, _ = get_card_price(card)
+            price = card_prices_fetched.get(card_id)
 
-            # 2. Check shared price cache — server-wide, zero API cost
+            # Check shared DB cache if still no price
             if price is None and card_id:
                 async with db.execute(
                     "SELECT price FROM card_prices WHERE card_id = ?", (card_id,)
@@ -171,12 +186,7 @@ async def add_cards_to_collection(discord_id: str, cards: list[dict]):
                     if row:
                         price = row[0]
 
-            # 3. Try TCGdex — free, no key needed
-            if price is None and card_id:
-                from core.tcg_api import fetch_tcgdex_price
-                price = await fetch_tcgdex_price(card_id)
-
-            # 4. Store in shared cache so nobody pays for this card again
+            # Store in shared cache
             if price is not None and card_id:
                 await db.execute(
                     """INSERT INTO card_prices (card_id, price)
