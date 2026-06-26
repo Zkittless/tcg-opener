@@ -323,17 +323,11 @@ class BinderView(discord.ui.View):
             keep=None, page=self.page, per_page=1
         )
         if not cards:
-            log.warning(f"_toggle: no card found at page {self.page} for uid={self.uid}")
             await interaction.response.edit_message(embed=await self.build_embed(), view=self)
             return
 
         card_id = cards[0]["card_id"]
-        log.info(f"_toggle: setting keep={keep} for card_id={card_id} uid={self.uid}")
         await set_card_keep(self.uid, card_id, keep)
-
-        # Verify it was saved
-        cards_check, _ = await get_collection(self.uid, keep=False, page=1, per_page=1)
-        log.info(f"_toggle: after save, discard pile size = {_}")
 
         _, new_total = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
@@ -342,7 +336,52 @@ class BinderView(discord.ui.View):
         self.total = max(1, new_total)
         self.page  = min(self.page, self.total)
         self._rebuild()
-        await interaction.response.edit_message(embed=await self.build_embed(), view=self)
+
+        # Force-refresh the embed with updated keep status from DB
+        embed = await self._build_embed_for_card_id(card_id)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def _build_embed_for_card_id(self, card_id: str) -> discord.Embed:
+        """Fetch a specific card by ID and build its embed, bypassing page/filter logic."""
+        async with __import__('aiosqlite').connect(__import__('config').DB_PATH) as db:
+            db.row_factory = __import__('aiosqlite').Row
+            async with db.execute(
+                "SELECT * FROM collection WHERE discord_id = ? AND card_id = ?",
+                (self.uid, card_id)
+            ) as cur:
+                row = await cur.fetchone()
+                if not row:
+                    return await self.build_embed()
+                card = dict(row)
+
+        name      = card.get("card_name", "Unknown")
+        rarity    = card.get("rarity", "?")
+        set_name  = card.get("set_name", "?")
+        count     = card.get("count", 1)
+        image_url = card.get("image_url", "")
+        price     = card.get("market_price")
+        keep      = card.get("keep", 1)
+
+        color = rarity_color(rarity)
+        embed = discord.Embed(title=name, color=color)
+        if image_url:
+            embed.set_image(url=image_url)
+
+        embed.add_field(name="Rarity",          value=f"`{rarity}`",   inline=True)
+        embed.add_field(name="Set",             value=f"`{set_name}`", inline=True)
+        embed.add_field(name="Owned",           value=f"`×{count}`",   inline=True)
+
+        if price is not None:
+            price_val = f"**${float(price):,.2f}**"
+        else:
+            safe_name = name.replace(" ", "+")
+            tcg_url   = f"https://www.tcgplayer.com/search/pokemon/product?q={safe_name}&productLineName=pokemon"
+            price_val = f"[Check TCGPlayer]({tcg_url})"
+        embed.add_field(name="💵 Market Value", value=price_val,        inline=True)
+        embed.add_field(name="Status",          value="✅ Keep" if keep else "🗑️ Discard", inline=True)
+
+        embed.set_footer(text=f"Card {self.page} of {self.total}  •  ID: {card_id}")
+        return embed
 
     async def _back_to_collection(self, interaction: discord.Interaction):
         view  = CollectionView(uid=self.uid, user_id=self.user_id)
