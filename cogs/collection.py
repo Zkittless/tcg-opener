@@ -15,6 +15,9 @@ from discord import app_commands
 from discord.ext import commands
 import logging
 
+log = logging.getLogger("collection")
+import logging
+
 from config import PACK_TIMEOUT
 from core.db import (
     get_collection,
@@ -314,19 +317,24 @@ class BinderView(discord.ui.View):
         await self._toggle(interaction, keep=False)
 
     async def _toggle(self, interaction: discord.Interaction, keep: bool):
-        # Get the card at the current page using NO filter — always finds it
+        # Get the card at current page with NO filter
         cards, _ = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=None, page=self.page, per_page=1
         )
         if not cards:
+            log.warning(f"_toggle: no card found at page {self.page} for uid={self.uid}")
             await interaction.response.edit_message(embed=await self.build_embed(), view=self)
             return
 
         card_id = cards[0]["card_id"]
+        log.info(f"_toggle: setting keep={keep} for card_id={card_id} uid={self.uid}")
         await set_card_keep(self.uid, card_id, keep)
 
-        # Recalculate total for this view's filter
+        # Verify it was saved
+        cards_check, _ = await get_collection(self.uid, keep=False, page=1, per_page=1)
+        log.info(f"_toggle: after save, discard pile size = {_}")
+
         _, new_total = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=self.keep_filter, page=1, per_page=1

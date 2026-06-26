@@ -127,13 +127,16 @@ class SetBrowserView(discord.ui.View):
                 inline=False,
             )
 
-        # Show logo of first set on this page — comes from pokemontcg.io, always embeds
+        # Show first pack art of first set on page
         first = page_sets[0] if page_sets else None
         if first:
-            api_first = self.api_sets.get(first.set_id, {})
-            logo = get_set_logo(api_first)
-            if logo:
-                embed.set_image(url=logo)
+            if first.pack_arts:
+                embed.set_image(url=first.pack_arts[0])
+            else:
+                api_first = self.api_sets.get(first.set_id, {})
+                logo = get_set_logo(api_first)
+                if logo:
+                    embed.set_image(url=logo)
 
         embed.set_footer(text=f"{emoji} {self.era}  •  Page {self.page + 1}/{self.total_pages}")
         return embed
@@ -225,34 +228,53 @@ class PackPickerView(discord.ui.View):
         name    = api.get("name", self.meta.set_id)
         release = api.get("releaseDate", "?")
         total   = api.get("total", "?")
+        n_arts  = len(self.meta.pack_arts)
         color   = era_color(self.meta.era)
         emoji   = era_emoji(self.meta.era)
-        logo    = get_set_logo(api)
 
         embed = discord.Embed(
             title=f"🎴  {name}",
             description=(
                 f"{emoji} **{self.meta.era}**\n"
                 f"📅 Released: {release}\n"
-                f"🃏 {total} cards  •  {self.meta.pack_size} cards/pack"
+                f"🃏 {total} cards  •  {self.meta.pack_size} cards/pack\n"
+                f"🎨 Pack art {self.art_index + 1} of {n_arts}"
             ),
             color=color,
         )
 
-        if logo:
-            embed.set_image(url=logo)
+        art_url = self.meta.pack_arts[self.art_index] if self.meta.pack_arts else ""
+        if art_url:
+            embed.set_image(url=art_url)
+        else:
+            logo = get_set_logo(api)
+            if logo:
+                embed.set_image(url=logo)
 
-        embed.set_footer(text="Hit Rip Pack! to open")
+        embed.set_footer(text="Use ◀ ▶ to browse pack art  •  Rip Pack! to open")
         return embed
 
     def _rebuild(self):
         self.clear_items()
+        n = len(self.meta.pack_arts)
 
-        rip = discord.ui.Button(label="🎴  Rip Pack!", style=discord.ButtonStyle.danger, row=0)
+        if n > 1:
+            prev = discord.ui.Button(label="◀", style=discord.ButtonStyle.secondary, disabled=self.art_index == 0, row=0)
+            prev.callback = self._prev_art
+            self.add_item(prev)
+
+            ind = discord.ui.Button(label=f"{self.art_index + 1}/{n}", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+            self.add_item(ind)
+
+            nxt = discord.ui.Button(label="▶", style=discord.ButtonStyle.secondary, disabled=self.art_index >= n - 1, row=0)
+            nxt.callback = self._next_art
+            self.add_item(nxt)
+
+        rip = discord.ui.Button(label="🎴  Rip Pack!", style=discord.ButtonStyle.danger, row=1)
         rip.callback = self._rip
         self.add_item(rip)
 
-        back = discord.ui.Button(label="◀ Back to Sets", style=discord.ButtonStyle.secondary, row=0)
+        back = discord.ui.Button(label="◀ Back to Sets", style=discord.ButtonStyle.secondary, row=1)
         back.callback = self._back
         self.add_item(back)
 
