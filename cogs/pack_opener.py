@@ -16,7 +16,8 @@ import discord
 from discord.ext import commands
 import logging
 
-from config import PACK_TIMEOUT, ERA_COLORS
+from config import PACK_TIMEOUT
+from core.set_data import ERA_COLORS
 from core.set_data import SetMeta
 from core.pack_engine import rip_pack, slot_excitement, rarity_tier, get_pack_trick
 from core.tcg_api import card_rarity, card_name, card_number, get_card_image, format_price, get_card_price

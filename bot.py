@@ -3,7 +3,7 @@ from discord.ext import commands
 import asyncio
 import logging
 import os
-from config import TOKEN, PREFIX
+from config import TOKEN, PREFIX, GUILD_ID
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,12 +43,11 @@ class PokemonBot(commands.Bot):
                 log.error(f"Failed to load cog {cog}: {e}", exc_info=True)
 
         # Sync slash commands
-        guild_id = int(os.getenv("GUILD_ID", 0))
-        if guild_id:
-            guild = discord.Object(id=guild_id)
+        if GUILD_ID:
+            guild = discord.Object(id=GUILD_ID)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            log.info(f"Slash commands synced to guild {guild_id} (instant).")
+            log.info(f"Slash commands synced to guild {GUILD_ID} (instant).")
         else:
             await self.tree.sync()
             log.info("Slash commands synced globally (up to 1 hour to propagate).")
