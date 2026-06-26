@@ -138,13 +138,43 @@ def build_card_embed(
     return embed
 
 
+def get_pack_retail_cost(set_id: str) -> float:
+    """
+    MSRP per booster pack by era.
+    Sources: Official Pokemon TCG pricing, retailer listings.
+      - Scarlet & Violet era: $4.49 (raised from $3.99 with SV launch)
+      - Sword & Shield era:   $3.99
+      - Sun & Moon era:       $3.99
+      - XY era:               $3.99
+      - Older eras:           $3.99
+      - Special/mini sets (no booster box): slightly higher per-pack cost
+        through ETBs/bundles, roughly $4.50-$5.00
+    """
+    sid = set_id.lower()
+
+    # Mega Evolution era — sold only through ETBs/bundles ~$4.99/pack
+    if sid.startswith("me"):
+        return 4.99
+
+    # SV special sets (no booster box, higher cost through bundles)
+    if sid in {"sv8pt5", "sv4pt5", "sv3pt5", "sv6pt5"}:
+        return 4.99
+
+    # Standard SV sets
+    if sid.startswith("sv"):
+        return 4.49
+
+    # SwSh, SM, XY, older
+    return 3.99
+
+
 def build_pack_summary_embed(
     cards: list[dict],
     set_name: str,
     username: str,
+    set_id: str = "",
 ) -> discord.Embed:
     """Final embed shown after viewing all cards."""
-    from core.pack_engine import get_pack_trick
 
     embed = discord.Embed(
         title=f"📦  Pack Summary — {set_name}",
@@ -152,21 +182,21 @@ def build_pack_summary_embed(
         color=0xFFCC00,
     )
 
-    # Filter out the synthetic energy placeholder(s) — they're bonus, not collectible
+    # Filter out synthetic energy placeholder
     real_cards = [c for c in cards if c.get("_slot") != "energy"]
 
-    # Separate into hits and everything else
+    # Separate hits from bulk
     hits   = [c for c in real_cards if rarity_tier(card_rarity(c)) >= 3]
     others = [c for c in real_cards if rarity_tier(card_rarity(c)) < 3]
 
-    # Calculate total pack value (real cards only)
+    # Calculate total pulled value
     total_value   = 0.0
     has_any_price = False
     for c in real_cards:
         price, _ = get_card_price(c)
         if price is not None:
-            total_value   += price
-            has_any_price  = True
+            total_value  += price
+            has_any_price = True
 
     if hits:
         hit_lines = "\n".join(
@@ -183,10 +213,25 @@ def build_pack_summary_embed(
         embed.add_field(name="Rest of the Pack", value=card_lines[:1024], inline=False)
 
     if has_any_price:
+        retail_cost = get_pack_retail_cost(set_id)
+        profit      = total_value - retail_cost
+        profit_str  = f"+${profit:,.2f} 📈" if profit >= 0 else f"-${abs(profit):,.2f} 📉"
+        color_note  = "profit" if profit >= 0 else "loss"
+
         embed.add_field(
-            name="💵 Pack Total Value",
-            value=f"**${total_value:,.2f}** USD",
-            inline=False,
+            name="💵 Cards Pulled Value",
+            value=f"**${total_value:,.2f}**",
+            inline=True,
+        )
+        embed.add_field(
+            name="🏷️ Pack Retail Cost",
+            value=f"**${retail_cost:.2f}**",
+            inline=True,
+        )
+        embed.add_field(
+            name=f"{'📈 Profit' if profit >= 0 else '📉 Loss'}",
+            value=f"**{profit_str}**",
+            inline=True,
         )
 
     embed.set_footer(text="Use /collection to see your full binder!")
@@ -339,7 +384,8 @@ class PackOpenerView(discord.ui.View):
     def current_embed(self) -> discord.Embed:
         if self.summary:
             return build_pack_summary_embed(
-                self.cards, self.set_name, str(self.user.display_name)
+                self.cards, self.set_name, str(self.user.display_name),
+                set_id=self.meta.set_id,
             )
         return build_card_embed(
             card        = self.cards[self.index],
