@@ -151,10 +151,15 @@ class CollectionView(discord.ui.View):
         await interaction.response.send_modal(FilterModal(uid=self.uid, user_id=self.user_id))
 
     async def _browse(self, interaction: discord.Interaction):
-        keep_filter = {"all": None, "keep": True, "discard": False}[self.mode]
+        # Always browse the Keep pile — that way hitting Discard visibly removes cards.
+        # Users can switch to Discard pile view to restore cards with Keep.
+        keep_filter = {"all": True, "keep": True, "discard": False}[self.mode]
         _, total = await get_collection(self.uid, keep=keep_filter, page=1, per_page=1)
         if total == 0:
-            await interaction.response.send_message("No cards in this pile!", ephemeral=True)
+            await interaction.response.send_message(
+                "No cards in this pile yet! Open some packs first. 🎴",
+                ephemeral=True
+            )
             return
         view  = BinderView(uid=self.uid, user_id=self.user_id, keep_filter=keep_filter, total=total)
         embed = await view.build_embed()
@@ -305,10 +310,18 @@ class BinderView(discord.ui.View):
         await interaction.response.edit_message(embed=await self.build_embed(), view=self)
 
     async def _mark_keep(self, interaction: discord.Interaction):
-        await self._toggle(interaction, keep=True)
+        try:
+            await self._toggle(interaction, keep=True)
+        except Exception as e:
+            log.exception(f"_mark_keep error: {e}")
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
     async def _mark_discard(self, interaction: discord.Interaction):
-        await self._toggle(interaction, keep=False)
+        try:
+            await self._toggle(interaction, keep=False)
+        except Exception as e:
+            log.exception(f"_mark_discard error: {e}")
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
     async def _toggle(self, interaction: discord.Interaction, keep: bool):
         # Get current card with no filter
