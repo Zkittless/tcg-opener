@@ -116,10 +116,16 @@ def build_card_embed(
 
     # Price
     price_str = format_price(card)
+    tcg_url   = card.get("tcgplayer", {}).get("url", "") if card.get("tcgplayer") else ""
     if price_str:
-        embed.add_field(name="💵 Market Value", value=f"**{price_str}**", inline=True)
+        price_display = f"**${float(price_str.replace('$','').replace(',','')):,.2f}**"
+        if tcg_url:
+            price_display += f"\n[TCGPlayer]({tcg_url})"
+        embed.add_field(name="💵 Market Value", value=price_display, inline=True)
+    elif tcg_url:
+        embed.add_field(name="💵 Market Value", value=f"[Check TCGPlayer]({tcg_url})", inline=True)
     else:
-        embed.add_field(name="💵 Market Value", value="`N/A`", inline=True)
+        embed.add_field(name="💵 Market Value", value="`No price data`\n*(API key needed)*", inline=True)
 
     progress = "".join(
         "🟨" if i == card_index else ("🟩" if i < card_index else "⬛")

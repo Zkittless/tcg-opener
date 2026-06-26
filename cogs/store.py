@@ -127,10 +127,13 @@ class SetBrowserView(discord.ui.View):
                 inline=False,
             )
 
-        # Show first pack art of the first set on this page as the embed image
+        # Show first pack art of first set on this page — fall back to logo
         first = page_sets[0] if page_sets else None
-        if first and first.pack_arts:
-            embed.set_image(url=first.pack_arts[0])
+        if first:
+            api_first = self.api_sets.get(first.set_id, {})
+            art  = first.pack_arts[0] if first.pack_arts else ""
+            logo = get_set_logo(api_first)
+            embed.set_image(url=art if art else logo)
 
         embed.set_footer(text=f"{emoji} {self.era}  •  Page {self.page + 1}/{self.total_pages}")
         return embed
@@ -237,11 +240,11 @@ class PackPickerView(discord.ui.View):
             color=color,
         )
 
-        if self.meta.pack_arts:
-            embed.set_image(url=self.meta.pack_arts[self.art_index])
-
-        logo = get_set_logo(api)
-        if logo:
+        # Try pack art first, fall back to set logo (always works)
+        art_url = self.meta.pack_arts[self.art_index] if self.meta.pack_arts else ""
+        logo    = get_set_logo(api)
+        embed.set_image(url=art_url if art_url else logo)
+        if logo and art_url:
             embed.set_thumbnail(url=logo)
 
         embed.set_footer(text="Use ◀ ▶ to flip between pack art variants  •  Hit Rip Pack! to open")

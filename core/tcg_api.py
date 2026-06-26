@@ -182,52 +182,47 @@ def is_secret_rare(card: dict, set_total: int) -> bool:
 
 def get_card_price(card: dict) -> tuple[float | None, str]:
     """
-    Return (price_usd, source_label) for the best available market price.
+    Return (price_usd, source_label).
 
-    Priority order:
-      1. TCGPlayer market price  (most cards, most up-to-date)
-      2. TCGPlayer low price     (fallback if no market)
-      3. Cardmarket avg sell     (European market, used when TCGPlayer absent)
-
-    Returns (None, "") when no price data exists.
-
-    TCGPlayer price buckets tried, in order:
-      holofoil → reverseHolofoil → 1stEditionHolofoil → normal → unlimited
+    NOTE: pokemontcg.io only returns price data when an API key is provided.
+    Without a key the tcgplayer/cardmarket fields are present but empty dicts.
+    We try all known bucket names and fall through gracefully.
     """
-    # ── TCGPlayer ────────────────────────────────────────────────────────────
-    tcg = card.get("tcgplayer", {}).get("prices", {})
+    # ── TCGPlayer ─────────────────────────────────────────────────────────────
+    tcg = card.get("tcgplayer", {})
+    prices = tcg.get("prices", {}) if tcg else {}
     bucket_order = [
-        "holofoil",
-        "reverseHolofoil",
-        "1stEditionHolofoil",
-        "normal",
-        "unlimited",
-        "1stEdition",
+        "holofoil", "reverseHolofoil", "1stEditionHolofoil",
+        "1stEditionNormal", "normal", "unlimited",
     ]
     for bucket in bucket_order:
-        b = tcg.get(bucket, {})
-        if b:
-            market = b.get("market")
-            if market is not None:
-                return float(market), "TCGPlayer"
-            low = b.get("low")
-            if low is not None:
-                return float(low), "TCGPlayer (low)"
+        b = prices.get(bucket, {})
+        if not b:
+            continue
+        market = b.get("market")
+        if market is not None:
+            return float(market), "TCGPlayer"
+        mid = b.get("mid")
+        if mid is not None:
+            return float(mid), "TCGPlayer (mid)"
+        low = b.get("low")
+        if low is not None:
+            return float(low), "TCGPlayer (low)"
 
-    # ── Cardmarket ───────────────────────────────────────────────────────────
-    cm = card.get("cardmarket", {}).get("prices", {})
-    avg = cm.get("averageSellPrice") or cm.get("avg1")
-    if avg is not None:
-        return float(avg), "Cardmarket"
+    # ── Cardmarket ────────────────────────────────────────────────────────────
+    cm = card.get("cardmarket", {})
+    cm_prices = cm.get("prices", {}) if cm else {}
+    for field in ("averageSellPrice", "trendPrice", "avg7", "avg30", "avg1"):
+        val = cm_prices.get(field)
+        if val is not None:
+            return float(val), "Cardmarket"
 
     return None, ""
 
 
 def format_price(card: dict) -> str:
-    """Return a formatted price string like '$4.25' or '' if unknown."""
-    price, source = get_card_price(card)
+    """Return formatted price string like '$4.25' or '' if unavailable."""
+    price, _ = get_card_price(card)
     if price is None:
         return ""
-    if price == 0.0:
-        return "~$0.00"
     return f"${price:,.2f}"
