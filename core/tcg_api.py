@@ -260,11 +260,16 @@ async def fetch_tcgdex_price(card_id: str) -> float | None:
         session = await _get_price_proxy_session()
         url     = f"{_PRICE_PROXY_BASE}/{card_id}"
         async with session.get(url, allow_redirects=True) as resp:
-            if resp.status != 200:
-                log.warning(f"Price proxy returned {resp.status} for {card_id}")
+            raw = await resp.text()
+            log.info(f"Price proxy raw for {card_id}: status={resp.status} body={raw[:200]}")
+            if resp.status != 200 or not raw.strip():
                 _price_proxy_cache[card_id] = None
                 return None
-            data = await resp.json(content_type=None)
+            try:
+                data = await resp.json(content_type=None)
+            except Exception:
+                import json
+                data = json.loads(raw)
 
         # Response shape: {"prices": {"holofoil": {"market": 4.25, ...}, "normal": {...}}}
         prices = data.get("prices", {})
