@@ -466,6 +466,27 @@ class CollectionCog(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
+    @app_commands.command(name="fixcollection", description="Fix any collection display issues")
+    async def fixcollection(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
+        import aiosqlite
+        from config import DB_PATH
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM collection WHERE discord_id = ? AND keep IS NULL", (uid,)
+            )
+            null_count = (await cur.fetchone())[0]
+            await db.execute(
+                "UPDATE collection SET keep = 1 WHERE discord_id = ? AND keep IS NULL", (uid,)
+            )
+            await db.commit()
+        await interaction.followup.send(
+            f"✅ Fixed! {null_count} cards had a NULL keep value and were set to Keep.\n"
+            f"Try `/collection` again — discard should now work.",
+            ephemeral=True,
+        )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(CollectionCog(bot))

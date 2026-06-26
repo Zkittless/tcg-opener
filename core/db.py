@@ -96,6 +96,11 @@ async def ensure_user(discord_id: str, username: str):
                ON CONFLICT(discord_id) DO UPDATE SET username=excluded.username""",
             (discord_id, username),
         )
+        # Fix any NULL keep values for this user every time — belt and suspenders
+        await db.execute(
+            "UPDATE collection SET keep = 1 WHERE discord_id = ? AND keep IS NULL",
+            (discord_id,),
+        )
         await db.commit()
 
 
