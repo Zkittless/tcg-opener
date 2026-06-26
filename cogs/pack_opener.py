@@ -281,7 +281,7 @@ class PackOpenerView(discord.ui.View):
         """Rip the pack, save to DB, then return the ready view."""
         cards = await rip_pack(meta.set_id, meta.pack_size)
 
-        # Persist to database
+        # Persist to database (also fetches TCGCSV prices into DB cache)
         try:
             uid = str(user.id)
             await ensure_user(uid, str(user))
@@ -290,6 +290,27 @@ class PackOpenerView(discord.ui.View):
             await log_pack_open(uid, meta.set_id, api_set.get("name", meta.set_id))
         except Exception as e:
             log.error(f"DB error saving pack for {user}: {e}")
+
+        # Inject cached prices back into card objects for the summary display
+        try:
+            from core.db import get_cached_price
+            for card in cards:
+                if card.get("_slot") == "energy":
+                    continue
+                card_id = card.get("id", "")
+                if not card_id:
+                    continue
+                # Skip if already has inline price
+                existing, _ = get_card_price(card)
+                if existing is not None:
+                    continue
+                price = await get_cached_price(card_id)
+                if price is not None:
+                    # Inject as a fake tcgplayer.prices.normal.market so
+                    # get_card_price() and format_price() pick it up
+                    card.setdefault("tcgplayer", {}).setdefault("prices", {}).setdefault("normal", {})["market"] = price
+        except Exception as e:
+            log.error(f"Price injection error: {e}")
 
         return cls(
             cards    = cards,
