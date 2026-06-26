@@ -19,7 +19,7 @@ import logging
 from config import PACK_TIMEOUT
 from core.set_data import ERA_COLORS
 from core.set_data import SetMeta
-from core.pack_engine import rip_pack, slot_excitement, rarity_tier, get_pack_trick
+from core.pack_engine import rip_pack, slot_excitement, rarity_tier
 from core.tcg_api import card_rarity, card_name, card_number, get_card_image, format_price, get_card_price
 from core.db import (
     ensure_user,
@@ -38,20 +38,9 @@ log = logging.getLogger("pack_opener")
 def build_loading_embed(meta: SetMeta, api_set: dict) -> discord.Embed:
     name  = api_set.get("name", meta.set_id)
     color = ERA_COLORS.get(meta.era, 0xFFCC00)
-    trick = get_pack_trick(meta.set_id)
-
-    lines = [
-        "Shuffling the pack and pulling cards...",
-        "",
-        f"🃏 **Pack Trick Applied**",
-        trick.description,
-    ]
-    if trick.set_note:
-        lines += ["", f"ℹ️ {trick.set_note}"]
-
     embed = discord.Embed(
         title=f"🎴  Ripping {name}...",
-        description="\n".join(lines),
+        description="Pulling cards from the pack...",
         color=color,
     )
     return embed

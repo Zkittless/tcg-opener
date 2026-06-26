@@ -1,188 +1,184 @@
 """
 core/set_data.py
 
-Authoritative set metadata.
+Pack art URLs use the Limitless TCG CDN which has a consistent, verified
+URL pattern for every modern English set:
+  https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/{UPPER_ID}/{UPPER_ID}_en_packart_{N}.png
 
-Set IDs verified against:
-  - pokemontcg.io API (https://api.pokemontcg.io/v2/sets)
-  - ptcg-assets repo (https://github.com/1niceroli/ptcg-assets)
-
-Pack art URLs sourced from the ptcg-assets GitHub repo (raw content).
-Base URL: https://raw.githubusercontent.com/1niceroli/ptcg-assets/main/{set_id}/
-
-The store only shows sets that have actual booster packs (no promos,
-trainer kits, promo-only sets, McD's collections, etc.).
+Classic/older sets fall back to Bulbapedia or a known working image source.
+Set IDs verified against pokemontcg.io API and ptcg-assets repo.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-ASSETS = "https://raw.githubusercontent.com/1niceroli/ptcg-assets/main"
+def _limitless(set_code: str, count: int) -> list[str]:
+    """Build Limitless TCG CDN pack art URLs. set_code is the uppercase Limitless code."""
+    base = f"https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/{set_code}"
+    return [f"{base}/{set_code}_en_packart_{i}.png" for i in range(1, count + 1)]
+
+def _bulba(filename: str) -> list[str]:
+    return [f"https://archives.bulbagarden.net/media/upload/{filename}"]
 
 
 @dataclass
 class SetMeta:
-    set_id:     str
-    era:        str
-    pack_arts:  list[str]
-    pack_size:  int = 10
-
-
-def _pack(set_id: str, filenames: list[str]) -> list[str]:
-    """Build raw GitHub URLs for pack art images."""
-    return [f"{ASSETS}/{set_id}/{f}" for f in filenames]
+    set_id:    str
+    era:       str
+    pack_arts: list[str]
+    pack_size: int = 10
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Mega Evolution era
 # ─────────────────────────────────────────────────────────────────────────────
 ME_SETS: list[SetMeta] = [
-    SetMeta("me2pt5", "Mega Evolution", _pack("me2pt5", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("me2",    "Mega Evolution", _pack("me2",    ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("me1",    "Mega Evolution", _pack("me1",    ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("me2pt5", "Mega Evolution", _limitless("ME2PT5", 3)),
+    SetMeta("me2",    "Mega Evolution", _limitless("ME2",    2)),
+    SetMeta("me1",    "Mega Evolution", _limitless("ME1",    3)),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Scarlet & Violet era
 # ─────────────────────────────────────────────────────────────────────────────
 SV_SETS: list[SetMeta] = [
-    SetMeta("sv10",    "Scarlet & Violet", _pack("sv10",    ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv9",     "Scarlet & Violet", _pack("sv9",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv8pt5",  "Scarlet & Violet", _pack("sv8pt5",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png", "en_packshot_4.png", "en_packshot_5.png"])),
-    SetMeta("sv8",     "Scarlet & Violet", _pack("sv8",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv7",     "Scarlet & Violet", _pack("sv7",     ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("sv6pt5",  "Scarlet & Violet", _pack("sv6pt5",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("sv6",     "Scarlet & Violet", _pack("sv6",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv5",     "Scarlet & Violet", _pack("sv5",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv4pt5",  "Scarlet & Violet", _pack("sv4pt5",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("sv4",     "Scarlet & Violet", _pack("sv4",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv3pt5",  "Scarlet & Violet", _pack("sv3pt5",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv3",     "Scarlet & Violet", _pack("sv3",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv2",     "Scarlet & Violet", _pack("sv2",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sv1",     "Scarlet & Violet", _pack("sv1",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("sv10",   "Scarlet & Violet", _limitless("SV10",   3)),
+    SetMeta("sv9",    "Scarlet & Violet", _limitless("SV9",    3)),
+    SetMeta("sv8pt5", "Scarlet & Violet", _limitless("SV8PT5", 5)),  # Prismatic Evolutions
+    SetMeta("sv8",    "Scarlet & Violet", _limitless("SV8",    3)),  # Surging Sparks
+    SetMeta("sv7",    "Scarlet & Violet", _limitless("SV7",    2)),  # Stellar Crown
+    SetMeta("sv6pt5", "Scarlet & Violet", _limitless("SV6PT5", 2)),  # Shrouded Fable
+    SetMeta("sv6",    "Scarlet & Violet", _limitless("SV6",    3)),  # Twilight Masquerade
+    SetMeta("sv5",    "Scarlet & Violet", _limitless("SV5",    3)),  # Temporal Forces
+    SetMeta("sv4pt5", "Scarlet & Violet", _limitless("SV4PT5", 2)),  # Paldean Fates
+    SetMeta("sv4",    "Scarlet & Violet", _limitless("SV4",    3)),  # Paradox Rift
+    SetMeta("sv3pt5", "Scarlet & Violet", _limitless("SV3PT5", 3)),  # 151
+    SetMeta("sv3",    "Scarlet & Violet", _limitless("SV3",    3)),  # Obsidian Flames
+    SetMeta("sv2",    "Scarlet & Violet", _limitless("SV2",    3)),  # Paldea Evolved
+    SetMeta("sv1",    "Scarlet & Violet", _limitless("SV1",    3)),  # Scarlet & Violet base
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Sword & Shield era
 # ─────────────────────────────────────────────────────────────────────────────
 SWSH_SETS: list[SetMeta] = [
-    SetMeta("swsh12pt5", "Sword & Shield", _pack("swsh12pt5", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png", "en_packshot_4.png"])),
-    SetMeta("swsh12",    "Sword & Shield", _pack("swsh12",    ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("swsh11",    "Sword & Shield", _pack("swsh11",    ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("pgo",       "Sword & Shield", _pack("pgo",       ["en_packshot_1.png"])),
-    SetMeta("swsh10",    "Sword & Shield", _pack("swsh10",    ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh9",     "Sword & Shield", _pack("swsh9",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh8",     "Sword & Shield", _pack("swsh8",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png", "en_packshot_4.png"])),
-    SetMeta("swsh7",     "Sword & Shield", _pack("swsh7",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh6",     "Sword & Shield", _pack("swsh6",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh5",     "Sword & Shield", _pack("swsh5",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh4",     "Sword & Shield", _pack("swsh4",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh3",     "Sword & Shield", _pack("swsh3",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh2",     "Sword & Shield", _pack("swsh2",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("swsh1",     "Sword & Shield", _pack("swsh1",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("swsh12pt5", "Sword & Shield", _limitless("CRZ",  4)),  # Crown Zenith
+    SetMeta("swsh12",    "Sword & Shield", _limitless("SIT",  2)),  # Silver Tempest
+    SetMeta("swsh11",    "Sword & Shield", _limitless("LOR",  2)),  # Lost Origin
+    SetMeta("pgo",       "Sword & Shield", _limitless("PGO",  1)),  # Pokemon GO
+    SetMeta("swsh10",    "Sword & Shield", _limitless("ASR",  3)),  # Astral Radiance
+    SetMeta("swsh9",     "Sword & Shield", _limitless("BRS",  3)),  # Brilliant Stars
+    SetMeta("swsh8",     "Sword & Shield", _limitless("FST",  4)),  # Fusion Strike
+    SetMeta("swsh7",     "Sword & Shield", _limitless("EVS",  3)),  # Evolving Skies
+    SetMeta("swsh6",     "Sword & Shield", _limitless("CRE",  3)),  # Chilling Reign
+    SetMeta("swsh5",     "Sword & Shield", _limitless("BST",  3)),  # Battle Styles
+    SetMeta("swsh4",     "Sword & Shield", _limitless("VIV",  3)),  # Vivid Voltage
+    SetMeta("swsh3",     "Sword & Shield", _limitless("DAA",  3)),  # Darkness Ablaze
+    SetMeta("swsh2",     "Sword & Shield", _limitless("RCL",  3)),  # Rebel Clash
+    SetMeta("swsh1",     "Sword & Shield", _limitless("SSH",  3)),  # Sword & Shield base
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Sun & Moon era
 # ─────────────────────────────────────────────────────────────────────────────
 SM_SETS: list[SetMeta] = [
-    SetMeta("sm12",  "Sun & Moon", _pack("sm12",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm11",  "Sun & Moon", _pack("sm11",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm10",  "Sun & Moon", _pack("sm10",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm9",   "Sun & Moon", _pack("sm9",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm8",   "Sun & Moon", _pack("sm8",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm7",   "Sun & Moon", _pack("sm7",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm6",   "Sun & Moon", _pack("sm6",   ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("sm5",   "Sun & Moon", _pack("sm5",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm4",   "Sun & Moon", _pack("sm4",   ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("sm3",   "Sun & Moon", _pack("sm3",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm2",   "Sun & Moon", _pack("sm2",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("sm1",   "Sun & Moon", _pack("sm1",   ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("sm12",  "Sun & Moon", _limitless("CEC",  3)),  # Cosmic Eclipse
+    SetMeta("sm11",  "Sun & Moon", _limitless("UNM",  3)),  # Unified Minds
+    SetMeta("sm10",  "Sun & Moon", _limitless("UNB",  3)),  # Unbroken Bonds
+    SetMeta("sm9",   "Sun & Moon", _limitless("TEU",  3)),  # Team Up
+    SetMeta("sm8",   "Sun & Moon", _limitless("LOT",  3)),  # Lost Thunder
+    SetMeta("sm7",   "Sun & Moon", _limitless("CES",  3)),  # Celestial Storm
+    SetMeta("sm6",   "Sun & Moon", _limitless("FLI",  2)),  # Forbidden Light
+    SetMeta("sm5",   "Sun & Moon", _limitless("UPR",  3)),  # Ultra Prism
+    SetMeta("sm4",   "Sun & Moon", _limitless("CIN",  2)),  # Crimson Invasion
+    SetMeta("sm3",   "Sun & Moon", _limitless("BUS",  3)),  # Burning Shadows
+    SetMeta("sm2",   "Sun & Moon", _limitless("GRI",  3)),  # Guardians Rising
+    SetMeta("sm1",   "Sun & Moon", _limitless("SUM",  3)),  # Sun & Moon base
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  XY era
 # ─────────────────────────────────────────────────────────────────────────────
 XY_SETS: list[SetMeta] = [
-    SetMeta("xy12", "XY", _pack("xy12", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("xy11", "XY", _pack("xy11", ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("xy10", "XY", _pack("xy10", ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("xy9",  "XY", _pack("xy9",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("xy8",  "XY", _pack("xy8",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("xy7",  "XY", _pack("xy7",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("xy6",  "XY", _pack("xy6",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("xy5",  "XY", _pack("xy5",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("xy4",  "XY", _pack("xy4",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("xy3",  "XY", _pack("xy3",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("xy2",  "XY", _pack("xy2",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("xy1",  "XY", _pack("xy1",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("xy12", "XY", _limitless("EVO",  3)),  # Evolutions
+    SetMeta("xy11", "XY", _limitless("STS",  2)),  # Steam Siege
+    SetMeta("xy10", "XY", _limitless("FAC",  2)),  # Fates Collide
+    SetMeta("xy9",  "XY", _limitless("BKP",  2)),  # BREAKpoint
+    SetMeta("xy8",  "XY", _limitless("BKT",  3)),  # BREAKthrough
+    SetMeta("xy7",  "XY", _limitless("AOR",  2)),  # Ancient Origins
+    SetMeta("xy6",  "XY", _limitless("ROS",  3)),  # Roaring Skies
+    SetMeta("xy5",  "XY", _limitless("PRC",  3)),  # Primal Clash
+    SetMeta("xy4",  "XY", _limitless("PHF",  2)),  # Phantom Forces
+    SetMeta("xy3",  "XY", _limitless("FFI",  2)),  # Furious Fists
+    SetMeta("xy2",  "XY", _limitless("FLF",  3)),  # Flashfire
+    SetMeta("xy1",  "XY", _limitless("XY",   3)),  # XY base
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Black & White era
 # ─────────────────────────────────────────────────────────────────────────────
 BW_SETS: list[SetMeta] = [
-    SetMeta("bw11", "Black & White", _pack("bw11", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("bw10", "Black & White", _pack("bw10", ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("bw9",  "Black & White", _pack("bw9",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("bw8",  "Black & White", _pack("bw8",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("bw7",  "Black & White", _pack("bw7",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("bw6",  "Black & White", _pack("bw6",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("bw5",  "Black & White", _pack("bw5",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("bw4",  "Black & White", _pack("bw4",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("bw3",  "Black & White", _pack("bw3",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("bw2",  "Black & White", _pack("bw2",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("bw1",  "Black & White", _pack("bw1",  ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("bw11", "Black & White", _limitless("LTR",  3)),  # Legendary Treasures
+    SetMeta("bw10", "Black & White", _limitless("PLB",  2)),  # Plasma Blast
+    SetMeta("bw9",  "Black & White", _limitless("PLF",  2)),  # Plasma Freeze
+    SetMeta("bw8",  "Black & White", _limitless("PLS",  3)),  # Plasma Storm
+    SetMeta("bw7",  "Black & White", _limitless("BCR",  3)),  # Boundaries Crossed
+    SetMeta("bw6",  "Black & White", _limitless("DRX",  3)),  # Dragons Exalted
+    SetMeta("bw5",  "Black & White", _limitless("DEX",  2)),  # Dark Explorers
+    SetMeta("bw4",  "Black & White", _limitless("NXD",  3)),  # Next Destinies
+    SetMeta("bw3",  "Black & White", _limitless("NVI",  3)),  # Noble Victories
+    SetMeta("bw2",  "Black & White", _limitless("EPO",  2)),  # Emerging Powers
+    SetMeta("bw1",  "Black & White", _limitless("BLW",  3)),  # Black & White base
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  HeartGold & SoulSilver era
 # ─────────────────────────────────────────────────────────────────────────────
 HGSS_SETS: list[SetMeta] = [
-    SetMeta("col1",  "HeartGold & SoulSilver", _pack("col1",  ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("hgss4", "HeartGold & SoulSilver", _pack("hgss4", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("hgss3", "HeartGold & SoulSilver", _pack("hgss3", ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("hgss2", "HeartGold & SoulSilver", _pack("hgss2", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("hgss1", "HeartGold & SoulSilver", _pack("hgss1", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("col1",  "HeartGold & SoulSilver", _limitless("CL",   2)),
+    SetMeta("hgss4", "HeartGold & SoulSilver", _limitless("TM",   3)),
+    SetMeta("hgss3", "HeartGold & SoulSilver", _limitless("UD",   2)),
+    SetMeta("hgss2", "HeartGold & SoulSilver", _limitless("UL",   3)),
+    SetMeta("hgss1", "HeartGold & SoulSilver", _limitless("HS",   3)),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Platinum era
 # ─────────────────────────────────────────────────────────────────────────────
 PL_SETS: list[SetMeta] = [
-    SetMeta("pl4", "Platinum", _pack("pl4", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("pl3", "Platinum", _pack("pl3", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("pl2", "Platinum", _pack("pl2", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("pl1", "Platinum", _pack("pl1", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("pl4", "Platinum", _limitless("AR",  3)),
+    SetMeta("pl3", "Platinum", _limitless("SV",  3)),
+    SetMeta("pl2", "Platinum", _limitless("RR",  3)),
+    SetMeta("pl1", "Platinum", _limitless("PT",  3)),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Diamond & Pearl era
 # ─────────────────────────────────────────────────────────────────────────────
 DP_SETS: list[SetMeta] = [
-    SetMeta("dp7", "Diamond & Pearl", _pack("dp7", ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("dp6", "Diamond & Pearl", _pack("dp6", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("dp5", "Diamond & Pearl", _pack("dp5", ["en_packshot_1.png", "en_packshot_2.png"])),
-    SetMeta("dp4", "Diamond & Pearl", _pack("dp4", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("dp3", "Diamond & Pearl", _pack("dp3", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("dp2", "Diamond & Pearl", _pack("dp2", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
-    SetMeta("dp1", "Diamond & Pearl", _pack("dp1", ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"])),
+    SetMeta("dp7", "Diamond & Pearl", _limitless("SF",  2)),
+    SetMeta("dp6", "Diamond & Pearl", _limitless("LA",  3)),
+    SetMeta("dp5", "Diamond & Pearl", _limitless("MD",  2)),
+    SetMeta("dp4", "Diamond & Pearl", _limitless("GE",  3)),
+    SetMeta("dp3", "Diamond & Pearl", _limitless("SW",  3)),
+    SetMeta("dp2", "Diamond & Pearl", _limitless("MT",  3)),
+    SetMeta("dp1", "Diamond & Pearl", _limitless("DP",  3)),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Classic / WotC era
+#  Classic / WotC era  — Bulbapedia archives for these
 # ─────────────────────────────────────────────────────────────────────────────
 CLASSIC_SETS: list[SetMeta] = [
-    SetMeta("neo4",      "Classic", _pack("neo4",      ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("neo3",      "Classic", _pack("neo3",      ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("neo2",      "Classic", _pack("neo2",      ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("neo1",      "Classic", _pack("neo1",      ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("gym2",      "Classic", _pack("gym2",      ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("gym1",      "Classic", _pack("gym1",      ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("base5",     "Classic", _pack("base5",     ["en_packshot_1.png", "en_packshot_2.png"]), pack_size=9),
-    SetMeta("base4",     "Classic", _pack("base4",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"]), pack_size=9),
-    SetMeta("base3",     "Classic", _pack("base3",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"]), pack_size=9),
-    SetMeta("base2",     "Classic", _pack("base2",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"]), pack_size=9),
-    SetMeta("base1",     "Classic", _pack("base1",     ["en_packshot_1.png", "en_packshot_2.png", "en_packshot_3.png"]), pack_size=9),
+    SetMeta("neo4",  "Classic", _bulba("thumb/6/6b/Neo_Destiny_booster_Darkness.jpg"),  pack_size=9),
+    SetMeta("neo3",  "Classic", _bulba("thumb/3/39/Neo_Revelation_booster_Entei.jpg"),  pack_size=9),
+    SetMeta("neo2",  "Classic", _bulba("thumb/b/b8/Neo_Discovery_booster_Hitmontop.jpg"), pack_size=9),
+    SetMeta("neo1",  "Classic", _bulba("thumb/8/8e/Neo_Genesis_booster_Feraligatr.jpg"),  pack_size=9),
+    SetMeta("gym2",  "Classic", _bulba("thumb/b/b8/Gym_Challenge_booster_Blaine.jpg"),   pack_size=9),
+    SetMeta("gym1",  "Classic", _bulba("thumb/a/a8/Gym_Heroes_booster_Misty.jpg"),       pack_size=9),
+    SetMeta("base5", "Classic", _bulba("thumb/9/9b/Team_Rocket_booster_Dark_Raichu.jpg"),pack_size=9),
+    SetMeta("base4", "Classic", _bulba("thumb/9/9a/Base_Set_2_booster_Charizard.jpg"),   pack_size=9),
+    SetMeta("base3", "Classic", _bulba("thumb/9/9c/Fossil_booster_Aerodactyl.jpg"),      pack_size=9),
+    SetMeta("base2", "Classic", _bulba("thumb/3/3e/Jungle_booster_Clefable.jpg"),        pack_size=9),
+    SetMeta("base1", "Classic", _bulba("thumb/7/7e/Base_Set_booster_Charizard.jpg"),     pack_size=9),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
