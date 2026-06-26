@@ -43,8 +43,15 @@ class PokemonBot(commands.Bot):
                 log.error(f"Failed to load cog {cog}: {e}", exc_info=True)
 
         # Sync slash commands
-        await self.tree.sync()
-        log.info("Slash commands synced.")
+        guild_id = int(os.getenv("GUILD_ID", 0))
+        if guild_id:
+            guild = discord.Object(id=guild_id)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            log.info(f"Slash commands synced to guild {guild_id} (instant).")
+        else:
+            await self.tree.sync()
+            log.info("Slash commands synced globally (up to 1 hour to propagate).")
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (ID: {self.user.id})")
