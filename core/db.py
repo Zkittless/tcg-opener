@@ -159,7 +159,7 @@ async def add_cards_to_collection(discord_id: str, cards: list[dict]):
             rarity    = card.get("rarity", "")
             image_url = card.get("images", {}).get("large", "")
 
-            # 1. Price comes inline from pokemontcg.io when API key is set
+            # 1. Price comes inline from pokemontcg.io when API key has credits
             price, _ = get_card_price(card)
 
             # 2. Check shared price cache — server-wide, zero API cost
@@ -171,7 +171,12 @@ async def add_cards_to_collection(discord_id: str, cards: list[dict]):
                     if row:
                         price = row[0]
 
-            # 3. Store new prices back into shared cache for everyone
+            # 3. Try TCGdex — free, no key needed
+            if price is None and card_id:
+                from core.tcg_api import fetch_tcgdex_price
+                price = await fetch_tcgdex_price(card_id)
+
+            # 4. Store in shared cache so nobody pays for this card again
             if price is not None and card_id:
                 await db.execute(
                     """INSERT INTO card_prices (card_id, price)
