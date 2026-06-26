@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS pack_history (
 MIGRATIONS = [
     "ALTER TABLE collection ADD COLUMN market_price REAL",
     "ALTER TABLE collection ADD COLUMN keep INTEGER DEFAULT 1",
+    # Normalize NULLs that exist before the column was added
+    "UPDATE collection SET keep = 1 WHERE keep IS NULL",
 ]
 
 
@@ -156,7 +158,7 @@ async def get_collection(
             total = (await cur.fetchone())[0]
 
         async with db.execute(
-            f"SELECT * FROM collection {where} ORDER BY COALESCE(market_price,0) DESC, card_name LIMIT ? OFFSET ?",
+            f"SELECT * FROM collection {where} ORDER BY card_name, card_id LIMIT ? OFFSET ?",
             params + [per_page, offset],
         ) as cur:
             rows = await cur.fetchall()
