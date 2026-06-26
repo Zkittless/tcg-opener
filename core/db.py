@@ -258,17 +258,6 @@ async def delete_cards_below_value(discord_id: str, threshold: float):
             (discord_id, threshold),
         )
         await db.commit()
-    """Mark keep=1 for cards >= threshold, keep=0 for cards below."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE collection SET keep = 1 WHERE discord_id = ? AND market_price >= ?",
-            (discord_id, min_keep_value),
-        )
-        await db.execute(
-            "UPDATE collection SET keep = 0 WHERE discord_id = ? AND (market_price < ? OR market_price IS NULL)",
-            (discord_id, min_keep_value),
-        )
-        await db.commit()
 
 
 async def get_collection_summary(discord_id: str) -> list[dict]:
