@@ -102,7 +102,7 @@ async def get_user_stats(discord_id: str) -> dict | None:
 # ── Collection ops ────────────────────────────────────────────────────────────
 
 async def add_cards_to_collection(discord_id: str, cards: list[dict]):
-    from core.tcg_api import get_card_price
+    from core.tcg_api import get_card_price, fetch_tcgdex_price
     async with aiosqlite.connect(DB_PATH) as db:
         for card in cards:
             if card.get("_slot") == "energy":
@@ -113,16 +113,32 @@ async def add_cards_to_collection(discord_id: str, cards: list[dict]):
             set_name  = card.get("set", {}).get("name", "")
             rarity    = card.get("rarity", "")
             image_url = card.get("images", {}).get("large", "")
-            price, _  = get_card_price(card)
+
+            # Try inline price from pokemontcg.io (only works with paid key)
+            price, _ = get_card_price(card)
+
+            # If no inline price, reuse what's already stored in DB
+            if price is None and card_id:
+                async with db.execute(
+                    "SELECT market_price FROM collection WHERE discord_id = ? AND card_id = ?",
+                    (discord_id, card_id),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row and row[0] is not None:
+                        price = row[0]
+
+            # If still no price, fetch from TCGdex (free, no key needed)
+            if price is None and card_id:
+                price = await fetch_tcgdex_price(card_id)
 
             await db.execute(
                 """INSERT INTO collection
                        (discord_id, card_id, card_name, set_id, set_name, rarity, image_url, market_price, count)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
                    ON CONFLICT(discord_id, card_id)
-                   DO UPDATE SET count = count + 1,
-                                 market_price = excluded.market_price,
-                                 obtained_at = CURRENT_TIMESTAMP""",
+                   DO UPDATE SET count        = count + 1,
+                                 market_price = COALESCE(excluded.market_price, market_price),
+                                 obtained_at  = CURRENT_TIMESTAMP""",
                 (discord_id, card_id, card_name, set_id, set_name, rarity, image_url, price),
             )
         await db.commit()

@@ -226,3 +226,81 @@ def format_price(card: dict) -> str:
     if price is None:
         return ""
     return f"${price:,.2f}"
+
+
+# ── TCGdex Price Fetcher ──────────────────────────────────────────────────────
+# Completely free, no API key, no rate limit for reasonable use.
+# Returns TCGPlayer USD market prices + Cardmarket EUR prices.
+# Endpoint: GET https://api.tcgdex.net/v2/en/cards/{card_id}
+# Pricing is embedded in the card response — no separate call needed.
+#
+# card_id format: same as pokemontcg.io (e.g. "sv8pt5-75", "swsh3-136")
+#
+# In-process cache means each unique card ID is only fetched once per
+# bot session regardless of how many times it's pulled.
+
+_TCGDEX_BASE   = "https://api.tcgdex.net/v2/en/cards"
+_tcgdex_session: Optional[aiohttp.ClientSession] = None
+_tcgdex_cache:   dict[str, float | None] = {}   # card_id -> USD price
+
+
+async def _get_tcgdex_session() -> aiohttp.ClientSession:
+    global _tcgdex_session
+    if _tcgdex_session is None or _tcgdex_session.closed:
+        _tcgdex_session = aiohttp.ClientSession(
+            headers={"User-Agent": "PokemonPackBot/1.0"},
+            timeout=aiohttp.ClientTimeout(total=10),
+        )
+    return _tcgdex_session
+
+
+async def fetch_tcgdex_price(card_id: str) -> float | None:
+    """
+    Fetch USD market price for a card from TCGdex (free, no key).
+    card_id is the pokemontcg.io ID e.g. 'sv8pt5-75'.
+    Returns USD market price or None if unavailable.
+    Results are cached in-process for the bot's lifetime.
+    """
+    if card_id in _tcgdex_cache:
+        return _tcgdex_cache[card_id]
+
+    try:
+        session = await _get_tcgdex_session()
+        url     = f"{_TCGDEX_BASE}/{card_id}"
+        async with session.get(url) as resp:
+            if resp.status == 404:
+                _tcgdex_cache[card_id] = None
+                return None
+            if resp.status != 200:
+                log.warning(f"TCGdex returned {resp.status} for {card_id}")
+                return None  # don't cache errors — retry next time
+            data = await resp.json()
+
+        pricing = data.get("pricing", {})
+
+        # Prefer TCGPlayer USD market price
+        tcgp = pricing.get("tcgplayer", {})
+        for variant in ("holo", "normal", "reverse"):
+            v = tcgp.get(variant, {})
+            if v.get("marketPrice") is not None:
+                price = float(v["marketPrice"])
+                _tcgdex_cache[card_id] = price
+                log.info(f"TCGdex: {card_id} = ${price:.2f} (TCGPlayer {variant})")
+                return price
+
+        # Fall back to Cardmarket EUR (convert roughly — 1 EUR ≈ 1.08 USD)
+        cm = pricing.get("cardmarket", {})
+        for field in ("avg7", "trend", "avg30", "avg"):
+            val = cm.get(field)
+            if val is not None:
+                price = round(float(val) * 1.08, 2)
+                _tcgdex_cache[card_id] = price
+                log.info(f"TCGdex: {card_id} = ${price:.2f} (Cardmarket EUR→USD)")
+                return price
+
+        _tcgdex_cache[card_id] = None
+        return None
+
+    except Exception as e:
+        log.error(f"TCGdex fetch error for {card_id}: {e}")
+        return None
