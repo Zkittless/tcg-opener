@@ -255,10 +255,17 @@ class BinderView(discord.ui.View):
         if image_url:
             embed.set_image(url=image_url)
 
-        embed.add_field(name="Rarity",         value=f"`{rarity}`",          inline=True)
-        embed.add_field(name="Set",            value=f"`{set_name}`",        inline=True)
-        embed.add_field(name="Owned",          value=f"`×{count}`",          inline=True)
-        embed.add_field(name="💵 Market Value",value=fmt_price(price),        inline=True)
+        embed.add_field(name="Rarity",         value=f"`{rarity}`",    inline=True)
+        embed.add_field(name="Set",            value=f"`{set_name}`",  inline=True)
+        embed.add_field(name="Owned",          value=f"`×{count}`",    inline=True)
+
+        if price is not None:
+            price_val = f"**${float(price):,.2f}**"
+        else:
+            safe_name = name.replace(" ", "+")
+            tcg_url   = f"https://www.tcgplayer.com/search/pokemon/product?q={safe_name}&productLineName=pokemon"
+            price_val = f"[Check TCGPlayer]({tcg_url})"
+        embed.add_field(name="💵 Market Value", value=price_val,        inline=True)
         embed.add_field(name="Status",         value="✅ Keep" if keep else "🗑️ Discard", inline=True)
 
         embed.set_footer(text=f"Card {self.page} of {self.total}  •  ID: {card_id}")
@@ -307,20 +314,23 @@ class BinderView(discord.ui.View):
         await self._toggle(interaction, keep=False)
 
     async def _toggle(self, interaction: discord.Interaction, keep: bool):
-        # Fetch the current card by page (no keep filter — get the card regardless of status)
-        cards, _ = await get_collection(
+        # Fetch current card with NO filter so we always get it regardless of keep status
+        cards, total_unfiltered = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=None, page=self.page, per_page=1
         )
         if cards:
-            await set_card_keep(self.uid, cards[0]["card_id"], keep)
+            card_id = cards[0]["card_id"]
+            await set_card_keep(self.uid, card_id, keep)
 
-        # Recalculate total for this view's filter
+        # Recalculate total for this view's filter mode
         _, self.total = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=self.keep_filter, page=1, per_page=1
         )
-        self.page = min(self.page, max(1, self.total))
+        if self.total == 0:
+            self.total = 1  # avoid div-by-zero
+        self.page = min(self.page, self.total)
         self._rebuild()
         await interaction.response.edit_message(embed=await self.build_embed(), view=self)
 

@@ -114,18 +114,20 @@ def build_card_embed(
     embed.add_field(name="Set",     value=f"`{set_name}`", inline=True)
     embed.add_field(name="Slot",    value=slot_lbl,        inline=False)
 
-    # Price
+    # Price — pokemontcg.io only returns price data with a paid API key.
+    # We build a TCGPlayer search URL from the card name + set as a fallback.
     price_str = format_price(card)
-    tcg_url   = card.get("tcgplayer", {}).get("url", "") if card.get("tcgplayer") else ""
+    tcg_data  = card.get("tcgplayer") or {}
+    tcg_url   = tcg_data.get("url", "")
+    if not tcg_url:
+        # Build a search URL from card name
+        safe_name = card_name(card).replace(" ", "+")
+        tcg_url = f"https://www.tcgplayer.com/search/pokemon/product?q={safe_name}&productLineName=pokemon"
+
     if price_str:
-        price_display = f"**${float(price_str.replace('$','').replace(',','')):,.2f}**"
-        if tcg_url:
-            price_display += f"\n[TCGPlayer]({tcg_url})"
-        embed.add_field(name="💵 Market Value", value=price_display, inline=True)
-    elif tcg_url:
-        embed.add_field(name="💵 Market Value", value=f"[Check TCGPlayer]({tcg_url})", inline=True)
+        embed.add_field(name="💵 Market Value", value=f"**{price_str}**\n[TCGPlayer]({tcg_url})", inline=True)
     else:
-        embed.add_field(name="💵 Market Value", value="`No price data`\n*(API key needed)*", inline=True)
+        embed.add_field(name="💵 Market Value", value=f"[Check TCGPlayer]({tcg_url})", inline=True)
 
     progress = "".join(
         "🟨" if i == card_index else ("🟩" if i < card_index else "⬛")
