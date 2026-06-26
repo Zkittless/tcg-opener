@@ -314,23 +314,25 @@ class BinderView(discord.ui.View):
         await self._toggle(interaction, keep=False)
 
     async def _toggle(self, interaction: discord.Interaction, keep: bool):
-        # Fetch current card with NO filter so we always get it regardless of keep status
-        cards, total_unfiltered = await get_collection(
+        # Get the card at the current page using NO filter — always finds it
+        cards, _ = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=None, page=self.page, per_page=1
         )
-        if cards:
-            card_id = cards[0]["card_id"]
-            await set_card_keep(self.uid, card_id, keep)
+        if not cards:
+            await interaction.response.edit_message(embed=await self.build_embed(), view=self)
+            return
 
-        # Recalculate total for this view's filter mode
-        _, self.total = await get_collection(
+        card_id = cards[0]["card_id"]
+        await set_card_keep(self.uid, card_id, keep)
+
+        # Recalculate total for this view's filter
+        _, new_total = await get_collection(
             self.uid, set_id=self.set_id, min_value=self.min_value,
             keep=self.keep_filter, page=1, per_page=1
         )
-        if self.total == 0:
-            self.total = 1  # avoid div-by-zero
-        self.page = min(self.page, self.total)
+        self.total = max(1, new_total)
+        self.page  = min(self.page, self.total)
         self._rebuild()
         await interaction.response.edit_message(embed=await self.build_embed(), view=self)
 
