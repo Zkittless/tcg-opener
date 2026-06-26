@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS pack_history (
     set_name   TEXT,
     opened_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS card_prices (
+    card_id     TEXT PRIMARY KEY,
+    price       REAL NOT NULL,
+    cached_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 # Migration: add columns to existing DBs that predate these fields
@@ -112,8 +118,31 @@ async def get_user_stats(discord_id: str) -> dict | None:
 
 # ── Collection ops ────────────────────────────────────────────────────────────
 
+async def get_cached_price(card_id: str) -> float | None:
+    """Look up price from the shared card_prices table — no API call."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT price FROM card_prices WHERE card_id = ?", (card_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def store_cached_price(card_id: str, price: float):
+    """Store a price in the shared cache. Overwrites if already exists."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO card_prices (card_id, price)
+               VALUES (?, ?)
+               ON CONFLICT(card_id) DO UPDATE SET price = excluded.price,
+                                                   cached_at = CURRENT_TIMESTAMP""",
+            (card_id, price),
+        )
+        await db.commit()
+
+
 async def add_cards_to_collection(discord_id: str, cards: list[dict]):
-    from core.tcg_api import get_card_price, fetch_tcgdex_price
+    from core.tcg_api import get_card_price
     async with aiosqlite.connect(DB_PATH) as db:
         for card in cards:
             if card.get("_slot") == "energy":
@@ -125,22 +154,27 @@ async def add_cards_to_collection(discord_id: str, cards: list[dict]):
             rarity    = card.get("rarity", "")
             image_url = card.get("images", {}).get("large", "")
 
-            # Try inline price from pokemontcg.io (only works with paid key)
+            # 1. Price comes inline from pokemontcg.io when API key is set
             price, _ = get_card_price(card)
 
-            # If no inline price, reuse what's already stored in DB
+            # 2. Check shared price cache — server-wide, zero API cost
             if price is None and card_id:
                 async with db.execute(
-                    "SELECT market_price FROM collection WHERE discord_id = ? AND card_id = ?",
-                    (discord_id, card_id),
+                    "SELECT price FROM card_prices WHERE card_id = ?", (card_id,)
                 ) as cur:
                     row = await cur.fetchone()
-                    if row and row[0] is not None:
+                    if row:
                         price = row[0]
 
-            # If still no price, fetch from TCGdex (free, no key needed)
-            if price is None and card_id:
-                price = await fetch_tcgdex_price(card_id)
+            # 3. Store new prices back into shared cache for everyone
+            if price is not None and card_id:
+                await db.execute(
+                    """INSERT INTO card_prices (card_id, price)
+                       VALUES (?, ?)
+                       ON CONFLICT(card_id) DO UPDATE SET price = excluded.price,
+                                                           cached_at = CURRENT_TIMESTAMP""",
+                    (card_id, price),
+                )
 
             await db.execute(
                 """INSERT INTO collection
