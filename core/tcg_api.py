@@ -382,14 +382,15 @@ async def fetch_tcgdex_price(card_id: str) -> float | None:
         prices = await fetch_set_prices_tcgcsv(set_id)
         if prices:
             _tcgcsv_fetched.add(set_id)
-            # Store all prices in the DB cache
             from core.db import store_cached_price
             for num, price in prices.items():
-                await store_cached_price(f"{set_id}-{num}", price)
-            # Also cache zero-padded variants (e.g. sv8pt5-075 → 75)
-            # since pokemontcg.io uses unpadded numbers
+                cache_key = f"{set_id}-{num}"
+                log.info(f"TCGCSV storing: {cache_key} = ${price:.2f}")
+                await store_cached_price(cache_key, price)
             log.info(f"TCGCSV: cached {len(prices)} prices for {set_id}")
 
     # Now look up from DB cache
     from core.db import get_cached_price
-    return await get_cached_price(card_id)
+    price = await get_cached_price(card_id)
+    log.info(f"TCGCSV lookup: {card_id} (set={set_id} num={number}) -> {price}")
+    return price
