@@ -228,79 +228,60 @@ def format_price(card: dict) -> str:
     return f"${price:,.2f}"
 
 
-# ── TCGdex Price Fetcher ──────────────────────────────────────────────────────
-# Completely free, no API key, no rate limit for reasonable use.
-# Returns TCGPlayer USD market prices + Cardmarket EUR prices.
-# Endpoint: GET https://api.tcgdex.net/v2/en/cards/{card_id}
-# Pricing is embedded in the card response — no separate call needed.
-#
-# card_id format: same as pokemontcg.io (e.g. "sv8pt5-75", "swsh3-136")
-#
-# In-process cache means each unique card ID is only fetched once per
-# bot session regardless of how many times it's pulled.
+# ── Free Price Fetcher ────────────────────────────────────────────────────────
+# pokemontcg.io exposes a public price proxy that doesn't require an API key:
+#   https://prices.pokemontcg.io/tcgplayer/{card_id}
+# Returns TCGPlayer market prices directly. No auth, no credits.
 
-_TCGDEX_BASE   = "https://api.tcgdex.net/v2/en/cards"
-_tcgdex_session: Optional[aiohttp.ClientSession] = None
-_tcgdex_cache:   dict[str, float | None] = {}   # card_id -> USD price
+_PRICE_PROXY_BASE = "https://prices.pokemontcg.io/tcgplayer"
+_price_proxy_session: Optional[aiohttp.ClientSession] = None
+_price_proxy_cache: dict[str, float | None] = {}
 
 
-async def _get_tcgdex_session() -> aiohttp.ClientSession:
-    global _tcgdex_session
-    if _tcgdex_session is None or _tcgdex_session.closed:
-        _tcgdex_session = aiohttp.ClientSession(
+async def _get_price_proxy_session() -> aiohttp.ClientSession:
+    global _price_proxy_session
+    if _price_proxy_session is None or _price_proxy_session.closed:
+        _price_proxy_session = aiohttp.ClientSession(
             headers={"User-Agent": "PokemonPackBot/1.0"},
             timeout=aiohttp.ClientTimeout(total=10),
         )
-    return _tcgdex_session
+    return _price_proxy_session
 
 
 async def fetch_tcgdex_price(card_id: str) -> float | None:
     """
-    Fetch USD market price for a card from TCGdex (free, no key).
-    card_id is the pokemontcg.io ID e.g. 'sv8pt5-75'.
-    Returns USD market price or None if unavailable.
-    Results are cached in-process for the bot's lifetime.
+    Fetch market price via pokemontcg.io's free public price proxy.
+    No API key required. Falls back gracefully if unavailable.
     """
-    if card_id in _tcgdex_cache:
-        return _tcgdex_cache[card_id]
+    if card_id in _price_proxy_cache:
+        return _price_proxy_cache[card_id]
 
     try:
-        session = await _get_tcgdex_session()
-        url     = f"{_TCGDEX_BASE}/{card_id}"
-        async with session.get(url) as resp:
-            if resp.status == 404:
-                _tcgdex_cache[card_id] = None
-                return None
+        session = await _get_price_proxy_session()
+        url     = f"{_PRICE_PROXY_BASE}/{card_id}"
+        async with session.get(url, allow_redirects=True) as resp:
             if resp.status != 200:
-                log.warning(f"TCGdex returned {resp.status} for {card_id}")
-                return None  # don't cache errors — retry next time
-            data = await resp.json()
+                log.warning(f"Price proxy returned {resp.status} for {card_id}")
+                _price_proxy_cache[card_id] = None
+                return None
+            data = await resp.json(content_type=None)
 
-        pricing = data.get("pricing", {})
-
-        # Prefer TCGPlayer USD market price
-        tcgp = pricing.get("tcgplayer", {})
-        for variant in ("holo", "normal", "reverse"):
-            v = tcgp.get(variant, {})
-            if v.get("marketPrice") is not None:
-                price = float(v["marketPrice"])
-                _tcgdex_cache[card_id] = price
-                log.info(f"TCGdex: {card_id} = ${price:.2f} (TCGPlayer {variant})")
+        # Response shape: {"prices": {"holofoil": {"market": 4.25, ...}, "normal": {...}}}
+        prices = data.get("prices", {})
+        for variant in ("holofoil", "normal", "reverseHolofoil", "1stEditionHolofoil", "unlimited"):
+            v = prices.get(variant, {})
+            if not v:
+                continue
+            market = v.get("market") or v.get("mid") or v.get("low")
+            if market is not None:
+                price = float(market)
+                _price_proxy_cache[card_id] = price
+                log.info(f"Price proxy: {card_id} = ${price:.2f} ({variant})")
                 return price
 
-        # Fall back to Cardmarket EUR (convert roughly — 1 EUR ≈ 1.08 USD)
-        cm = pricing.get("cardmarket", {})
-        for field in ("avg7", "trend", "avg30", "avg"):
-            val = cm.get(field)
-            if val is not None:
-                price = round(float(val) * 1.08, 2)
-                _tcgdex_cache[card_id] = price
-                log.info(f"TCGdex: {card_id} = ${price:.2f} (Cardmarket EUR→USD)")
-                return price
-
-        _tcgdex_cache[card_id] = None
+        _price_proxy_cache[card_id] = None
         return None
 
     except Exception as e:
-        log.error(f"TCGdex fetch error for {card_id}: {e}")
+        log.error(f"Price proxy fetch error for {card_id}: {e}")
         return None
